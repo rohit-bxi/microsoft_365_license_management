@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+        NavBar AppsMenu Template Extension.
+
+        Replaces the Dropdown inside o_navbar_apps_menu with a custom icon button.
+        The button:
+        - Shows the current app's icon when inside an app (with back-arrow on hover)
+        - Is hidden when on the home menu (/odoo page) because currentApp is null
+          and we only render when currentApp is truthy
+    -->
+
+    <t t-inherit="web.NavBar.AppsMenu" t-inherit-mode="extension">
+        <!-- Replace the Dropdown component with our custom button -->
+        <xpath expr="//div[hasclass('o_navbar_apps_menu')]/Dropdown" position="replace">
+            <!-- Only show the button when an app is active.
+                 When home menu is shown, currentApp returns null (from navbar_patch.js),
+                 so this entire block won't render — hiding the button. -->
+            <button t-if="currentApp"
+                    class="o_beautiful_app_button"
+                    t-on-click="onAppIconClick"
+                    title="Home Menu">
+                <div class="o_app_icon_stack">
+                    <!-- App has a base64 icon image -->
+                    <img t-if="currentApp.webIconData"
+                         t-att-src="currentApp.webIconData"
+                         class="o_app_icon_nav"
+                         t-att-alt="currentApp.name"/>
+                    <!-- App has a CSS icon (iconClass + colors) -->
+                    <div t-else=""
+                         class="o_app_icon_nav_default"
+                         style="background-color: #875A7B;">
+                        <i class="fa fa-th-large" style="color: white;"/>
+                    </div>
+                    <!-- Back arrow overlay — visible on hover via CSS -->
+                    <i class="fa fa-chevron-left o_back_arrow"/>
+                </div>
+            </button>
+        </xpath>
+    </t>
+
+</templates>
