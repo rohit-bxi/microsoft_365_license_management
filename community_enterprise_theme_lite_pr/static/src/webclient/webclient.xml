@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+        WebClient Template Extension.
+        Injects the HomeMenu component BEFORE the ActionContainer.
+        Uses _hideHomeMenu method (defined in webclient.js patch) as callback.
+    -->
+    <t t-inherit="web.WebClient" t-inherit-mode="extension">
+        <!-- HomeMenu is now a native Action, rendered inside ActionContainer automatically -->
+    </t>
+
+</templates>
