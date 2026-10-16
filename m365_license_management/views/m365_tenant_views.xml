@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_tenant_list" model="ir.ui.view">
+        <field name="name">m365.tenant.list</field>
+        <field name="model">m365.tenant</field>
+        <field name="arch" type="xml">
+            <list string="Tenants" decoration-danger="state == 'error'" decoration-muted="not active">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="domain"/>
+                <field name="tenant_id" optional="hide"/>
+                <field name="total_licenses"/>
+                <field name="assigned_licenses"/>
+                <field name="available_licenses"/>
+                <field name="last_sync_date" optional="show"/>
+                <field name="allow_license_operations" optional="show"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'connected'"
+                       decoration-danger="state == 'error'"
+                       decoration-info="state == 'draft'"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_form" model="ir.ui.view">
+        <field name="name">m365.tenant.form</field>
+        <field name="model">m365.tenant</field>
+        <field name="arch" type="xml">
+            <form string="Microsoft 365 Tenant">
+                <header>
+                    <button name="action_test_connection" type="object" string="Test Connection"
+                            class="btn-primary" groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_sync_inventory" type="object" string="Synchronise Now"
+                            invisible="state == 'draft'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_skus" type="object" class="oe_stat_button"
+                                icon="fa-cubes">
+                            <field name="sku_count" widget="statinfo" string="Products"/>
+                        </button>
+                        <button name="action_view_users" type="object" class="oe_stat_button"
+                                icon="fa-users">
+                            <field name="user_count" widget="statinfo" string="Users"/>
+                        </button>
+                        <button name="action_view_requests" type="object" class="oe_stat_button"
+                                icon="fa-exchange">
+                            <field name="request_count" widget="statinfo" string="Requests"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. BXI Technologies"/></h1>
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="state != 'error'">
+                        <strong>Last error:</strong> <field name="last_error" nolabel="1" class="d-inline"/>
+                    </div>
+                    <group>
+                        <group string="Tenant">
+                            <field name="domain"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group string="Inventory">
+                            <field name="total_licenses"/>
+                            <field name="assigned_licenses"/>
+                            <field name="available_licenses"/>
+                            <field name="last_sync_date"/>
+                            <field name="last_user_sync_date"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Entra App Registration" name="connection">
+                            <group>
+                                <group string="OAuth 2.0 (Client Credentials)">
+                                    <field name="tenant_id"/>
+                                    <field name="client_id"/>
+                                    <field name="client_secret" password="True"
+                                           groups="m365_license_management.group_m365_admin"/>
+                                </group>
+                                <group string="Endpoints">
+                                    <field name="authority_url"/>
+                                    <field name="graph_url"/>
+                                    <field name="graph_scope"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Operations &amp; Automation" name="operations">
+                            <group>
+                                <group string="License Operations">
+                                    <field name="allow_license_operations"/>
+                                    <field name="auto_approve_admins"
+                                           invisible="not allow_license_operations"/>
+                                </group>
+                                <group string="Scheduled Synchronisation">
+                                    <field name="sync_enabled"/>
+                                    <field name="sync_users" invisible="not sync_enabled"/>
+                                </group>
+                                <group string="Low Availability Alerts">
+                                    <field name="low_availability_percent"/>
+                                    <field name="low_availability_units"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Products" name="products">
+                            <field name="sku_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="sku_part_number"/>
+                                    <field name="enabled_units" string="Total"/>
+                                    <field name="consumed_units" string="Assigned"/>
+                                    <field name="available_units"/>
+                                    <field name="utilization" widget="progressbar"/>
+                                    <field name="status"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Setup Guide" name="guide">
+                            <div class="o_m365_guide">
+                                <h4>1. Register an application in Microsoft Entra ID</h4>
+                                <p>Entra admin center &#8594; App registrations &#8594; New registration.
+                                   Copy the <b>Directory (tenant) ID</b> and <b>Application (client) ID</b>
+                                   and create a <b>client secret</b> (Certificates &amp; secrets).</p>
+                                <h4>2. Grant Microsoft Graph <i>application</i> permissions (admin consent)</h4>
+                                <ul>
+                                    <li><b>Read-only (Phase 1&#8211;3):</b> <code>Organization.Read.All</code>
+                                        (or <code>LicenseAssignment.Read.All</code>) for subscribed SKUs and
+                                        <code>User.Read.All</code> for the user directory.</li>
+                                    <li><b>License operations (Phase 4):</b>
+                                        <code>LicenseAssignment.ReadWrite.All</code> or
+                                        <code>User.ReadWrite.All</code> &#8211; grant only when
+                                        <i>Enable License Operations</i> is switched on (least privilege).</li>
+                                </ul>
+                                <h4>3. Test the connection</h4>
+                                <p>Fill in the IDs and secret, save and press <b>Test Connection</b>,
+                                   then <b>Synchronise Now</b> to load the license inventory.</p>
+                                <p class="text-muted">Users must have a <i>usage location</i> in Microsoft 365
+                                   before a license can be assigned.</p>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_search" model="ir.ui.view">
+        <field name="name">m365.tenant.search</field>
+        <field name="model">m365.tenant</field>
+        <field name="arch" type="xml">
+            <search string="Tenants">
+                <field name="name"/>
+                <field name="domain"/>
+                <field name="tenant_id"/>
+                <filter name="filter_connected" string="Connected" domain="[('state', '=', 'connected')]"/>
+                <filter name="filter_error" string="Connection Error" domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter name="filter_archived" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_tenant" model="ir.actions.act_window">
+        <field name="name">Tenants</field>
+        <field name="res_model">m365.tenant</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Connect your first Microsoft 365 tenant</p>
+            <p>Register an application in Microsoft Entra ID and enter its credentials to start
+               synchronising the license inventory.</p>
+        </field>
+    </record>
+</odoo>
