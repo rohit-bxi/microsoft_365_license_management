@@ -1,171 +1,378 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="m365_license_management.Dashboard">
-        <div class="m365d">
+        <div t-attf-class="m365d #{state.navOpen ? 'nav-open' : ''}" t-att-data-theme="state.theme">
+            <!-- ================= Header ================= -->
             <header class="m365d-header">
-                <div class="m365d-title"><i class="fa fa-windows me-2"/>Microsoft 365 License Management Dashboard</div>
-                <div class="m365d-header-right">
-                    <span class="m365d-updated" t-if="state.data">Last Updated: <t t-out="lastUpdated"/></span>
-                    <button t-if="state.data and state.data.is_admin" class="m365d-btn" t-on-click="refresh" t-att-disabled="state.syncing">
-                        <i t-attf-class="fa fa-refresh #{state.syncing ? 'fa-spin' : ''}"/> Refresh
+                <div class="m365d-brand">
+                    <button class="m365d-icon-btn m365d-burger" t-on-click="toggleNav" aria-label="Toggle navigation">
+                        <i class="fa fa-bars"/>
                     </button>
-                    <span class="m365d-admin"><i class="fa fa-user-circle me-1"/>Admin</span>
+                    <span class="m365d-logo" aria-hidden="true"><i/><i/><i/><i/></span>
+                    <div class="m365d-title">
+                        <b>Microsoft 365</b>
+                        <span>License Management Dashboard</span>
+                    </div>
+                </div>
+                <div class="m365d-header-right">
+                    <div class="m365d-updated" t-if="state.data">
+                        <small>Last updated</small>
+                        <span t-out="lastUpdated"/>
+                    </div>
+                    <button class="m365d-icon-btn" t-on-click="toggleAuto" t-att-class="{'on': state.autoRefresh}"
+                            t-att-title="state.autoRefresh ? 'Live view: reloads every minute (on)' : 'Auto-refresh (off)'">
+                        <i class="fa fa-clock-o"/>
+                    </button>
+                    <button class="m365d-icon-btn" t-on-click="toggleTheme" title="Toggle dark mode" aria-label="Toggle dark mode">
+                        <i t-attf-class="fa #{state.theme == 'dark' ? 'fa-sun-o' : 'fa-moon-o'}"/>
+                    </button>
+                    <button t-if="state.data and state.data.is_admin" class="m365d-btn" t-on-click="refresh" t-att-disabled="state.syncing">
+                        <i t-attf-class="fa fa-refresh #{state.syncing ? 'fa-spin' : ''}"/>
+                        <span class="hide-sm"> Sync now</span>
+                    </button>
                 </div>
             </header>
+
             <div class="m365d-body">
-                <aside class="m365d-side">
-                    <a class="active"><i class="fa fa-th-large"/> Overview</a>
-                    <a t-on-click="() => this.open('action_m365_sku')"><i class="fa fa-cubes"/> License Inventory</a>
-                    <a t-on-click="() => this.open('action_m365_license_user')"><i class="fa fa-users"/> User Management</a>
-                    <a t-on-click="() => this.open('action_m365_license_request')"><i class="fa fa-exchange"/> License Operations</a>
-                    <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_audit_log')"><i class="fa fa-list-alt"/> Audit Logs</a>
-                    <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_tenant')"><i class="fa fa-cog"/> Settings</a>
-                </aside>
+                <div class="m365d-scrim" t-on-click="toggleNav"/>
+                <!-- ================= Sidebar ================= -->
+                <nav class="m365d-side" aria-label="Dashboard navigation">
+                    <a class="active"><i class="fa fa-th-large"/><span>Overview</span></a>
+                    <a t-on-click="() => this.open('action_m365_sku')"><i class="fa fa-cubes"/><span>License Inventory</span></a>
+                    <a t-on-click="() => this.open('action_m365_license_user')"><i class="fa fa-users"/><span>User Management</span></a>
+                    <a t-on-click="() => this.open('action_m365_license_request')"><i class="fa fa-exchange"/><span>License Operations</span></a>
+                    <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_audit_log')"><i class="fa fa-list-alt"/><span>Audit Logs</span></a>
+                    <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_tenant')"><i class="fa fa-cog"/><span>Settings</span></a>
+                </nav>
+
                 <main class="m365d-main" t-if="state.data">
-                    <div class="m365d-filters">
+                    <!-- ================= Filters ================= -->
+                    <section class="m365d-filters">
                         <div class="m365d-tenants">
-                            <t t-foreach="state.data.tenants" t-as="t" t-key="t.id">
-                                <div t-attf-class="m365d-tenant #{isSelected(t) ? 'sel' : ''}" t-on-click="() => this.toggleTenant(t.id)">
-                                    <div class="nm"><i class="fa fa-building-o me-1"/><t t-out="t.name"/></div>
-                                    <div class="dm"><t t-out="t.domain"/></div>
-                                    <div class="st"><t t-out="t.assigned"/> / <t t-out="t.total"/> assigned
-                                        <span t-attf-class="dot #{t.state}"/></div>
-                                </div>
-                            </t>
+                            <button t-attf-class="m365d-tenant all #{!state.selected.length ? 'sel' : ''}" t-on-click="clearTenants">
+                                <span class="tico"><i class="fa fa-globe"/></span>
+                                <span class="tx"><b>All tenants</b><small><t t-out="state.data.tenants.length"/> connected</small></span>
+                            </button>
+                            <button t-foreach="state.data.tenants" t-as="t" t-key="t.id"
+                                    t-attf-class="m365d-tenant #{isSelected(t) ? 'sel' : ''}" t-on-click="() => this.toggleTenant(t.id)">
+                                <span class="tico"><i class="fa fa-building-o"/></span>
+                                <span class="tx">
+                                    <b><t t-out="t.name"/> <span t-attf-class="dot #{t.state}"/></b>
+                                    <small><t t-out="t.domain"/> · <t t-out="t.utilization"/>% used</small>
+                                </span>
+                            </button>
                             <div t-if="!state.data.tenants.length" class="m365d-empty">No tenants configured yet. Open Settings to add one.</div>
                         </div>
-                        <select class="m365d-select" t-on-change="onDateRange">
-                            <option value="7" t-att-selected="state.dateRange == 7">Last 7 Days</option>
-                            <option value="30" t-att-selected="state.dateRange == 30">Last 30 Days</option>
-                            <option value="90" t-att-selected="state.dateRange == 90">Last 90 Days</option>
-                        </select>
-                    </div>
+                        <label class="m365d-range">
+                            <small>Date range</small>
+                            <select class="m365d-select" t-on-change="onDateRange">
+                                <option value="7" t-att-selected="state.dateRange == 7">Last 7 days</option>
+                                <option value="30" t-att-selected="state.dateRange == 30">Last 30 days</option>
+                                <option value="90" t-att-selected="state.dateRange == 90">Last 90 days</option>
+                                <option value="180" t-att-selected="state.dateRange == 180">Last 6 months</option>
+                            </select>
+                        </label>
+                    </section>
 
-                    <t t-set="k" t-value="state.data.kpis"/>
-                    <div class="m365d-kpis">
-                        <div class="m365d-card kpi">
+                    <!-- ================= KPIs ================= -->
+                    <section class="m365d-kpis">
+                        <article class="m365d-card kpi">
                             <div class="ico blue"><i class="fa fa-id-card-o"/></div>
-                            <div><div class="lb">Total Licenses</div><div class="vl"><t t-out="k.total"/></div>
-                                <t t-set="d" t-value="delta(k.deltas.total)"/><div t-attf-class="dl #{d.cls}"><t t-out="d.text"/> vs period start</div></div>
-                        </div>
-                        <div class="m365d-card kpi">
+                            <div class="kbody">
+                                <div class="lb">Total licenses</div>
+                                <div class="vl"><t t-out="k.total"/></div>
+                                <t t-set="dl" t-value="delta(k.deltas.total)"/>
+                                <div t-attf-class="dl #{dl.cls}"><i t-attf-class="fa #{dl.icon}"/> <t t-out="dl.text"/> <span>vs period start</span></div>
+                            </div>
+                            <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">
+                                <polyline t-att-points="sparkline('total')" stroke="#2f7bf5"/>
+                            </svg>
+                        </article>
+                        <article class="m365d-card kpi">
                             <div class="ico green"><i class="fa fa-user-plus"/></div>
-                            <div><div class="lb">Assigned</div><div class="vl"><t t-out="k.assigned"/></div>
-                                <t t-set="d" t-value="delta(k.deltas.assigned)"/><div t-attf-class="dl #{d.cls}"><t t-out="d.text"/> vs period start</div></div>
-                            <svg viewBox="0 0 90 90" class="mini"><circle cx="45" cy="45" r="36" class="trk"/><circle cx="45" cy="45" r="36" class="arc" stroke="#1fa34a" t-att-stroke-dasharray="donut(k.assigned_pct)"/><text x="45" y="50" text-anchor="middle"><t t-out="k.assigned_pct"/>%</text></svg>
-                        </div>
-                        <div class="m365d-card kpi">
+                            <div class="kbody">
+                                <div class="lb">Assigned</div>
+                                <div class="vl"><t t-out="k.assigned"/></div>
+                                <t t-set="dl" t-value="delta(k.deltas.assigned)"/>
+                                <div t-attf-class="dl #{dl.cls}"><i t-attf-class="fa #{dl.icon}"/> <t t-out="dl.text"/> <span>vs period start</span></div>
+                            </div>
+                            <svg viewBox="0 0 90 90" class="mini" aria-hidden="true">
+                                <circle cx="45" cy="45" r="36" class="trk"/>
+                                <circle cx="45" cy="45" r="36" class="arc" stroke="#22b573" t-att-stroke-dasharray="donut(k.assigned_pct)"/>
+                                <text x="45" y="51" text-anchor="middle"><t t-out="k.assigned_pct"/>%</text>
+                            </svg>
+                        </article>
+                        <article class="m365d-card kpi">
                             <div class="ico orange"><i class="fa fa-archive"/></div>
-                            <div><div class="lb">Available</div><div class="vl"><t t-out="k.available"/></div>
-                                <t t-set="d" t-value="delta(k.deltas.available, true)"/><div t-attf-class="dl #{d.cls}"><t t-out="d.text"/> vs period start</div></div>
-                            <svg viewBox="0 0 90 90" class="mini"><circle cx="45" cy="45" r="36" class="trk"/><circle cx="45" cy="45" r="36" class="arc" stroke="#f28c28" t-att-stroke-dasharray="donut(k.available_pct)"/><text x="45" y="50" text-anchor="middle"><t t-out="k.available_pct"/>%</text></svg>
-                        </div>
-                        <div class="m365d-card kpi">
-                            <div class="ico purple"><i class="fa fa-cubes"/></div>
-                            <div><div class="lb">License Products</div><div class="vl"><t t-out="k.products"/></div>
-                                <t t-set="d" t-value="delta(k.deltas.products)"/><div t-attf-class="dl #{d.cls}"><t t-out="d.text"/> vs period start</div></div>
-                        </div>
-                    </div>
+                            <div class="kbody">
+                                <div class="lb">Available</div>
+                                <div class="vl"><t t-out="k.available"/></div>
+                                <t t-set="dl" t-value="delta(k.deltas.available, true)"/>
+                                <div t-attf-class="dl #{dl.cls}"><i t-attf-class="fa #{dl.icon}"/> <t t-out="dl.text"/> <span>vs period start</span></div>
+                            </div>
+                            <svg viewBox="0 0 90 90" class="mini" aria-hidden="true">
+                                <circle cx="45" cy="45" r="36" class="trk"/>
+                                <circle cx="45" cy="45" r="36" class="arc" stroke="#f5a524" t-att-stroke-dasharray="donut(k.available_pct)"/>
+                                <text x="45" y="51" text-anchor="middle"><t t-out="k.available_pct"/>%</text>
+                            </svg>
+                        </article>
+                        <article class="m365d-card kpi">
+                            <div class="ico purple"><i class="fa fa-cube"/></div>
+                            <div class="kbody">
+                                <div class="lb">License products</div>
+                                <div class="vl"><t t-out="k.products"/></div>
+                                <t t-set="dl" t-value="delta(k.deltas.products, false, false)"/>
+                                <div t-attf-class="dl #{dl.cls}"><i t-attf-class="fa #{dl.icon}"/> <t t-out="dl.text"/> <span>vs period start</span></div>
+                            </div>
+                        </article>
+                    </section>
 
-                    <div class="m365d-charts">
-                        <div class="m365d-card">
-                            <h3>License Utilization by Product</h3>
+                    <!-- ================= Trend + Insights ================= -->
+                    <section class="m365d-row r-trend">
+                        <article class="m365d-card">
+                            <div class="chead">
+                                <h3>License usage trend</h3>
+                                <div class="legend">
+                                    <span><i class="sw" style="background:#2f7bf5"/>Assigned</span>
+                                    <span><i class="sw dashed"/>Total</span>
+                                </div>
+                            </div>
+                            <t t-set="c" t-value="chart"/>
+                            <div t-if="c" class="trend" t-on-mousemove="onChartMove" t-on-mouseleave="onChartLeave">
+                                <svg t-attf-viewBox="0 0 #{c.w} #{c.h}" role="img" aria-label="License usage trend">
+                                    <defs>
+                                        <linearGradient id="m365Area" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stop-color="#2f7bf5" stop-opacity=".35"/>
+                                            <stop offset="100%" stop-color="#2f7bf5" stop-opacity="0"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <g class="grid">
+                                        <t t-foreach="c.ticks" t-as="tk" t-key="tk_index">
+                                            <line t-att-x1="c.l" t-att-x2="c.w - c.r" t-att-y1="tk.y" t-att-y2="tk.y"/>
+                                            <text t-att-x="c.l - 6" t-att-y="tk.y + 3" text-anchor="end"><t t-out="tk.label"/></text>
+                                        </t>
+                                        <text t-foreach="c.xlabels" t-as="xl" t-key="xl.i" t-att-x="xl.x" t-att-y="c.h - 8" text-anchor="middle"><t t-out="xl.label"/></text>
+                                    </g>
+                                    <polygon t-att-points="c.area" fill="url(#m365Area)"/>
+                                    <polyline t-att-points="c.totalLine" class="l-total"/>
+                                    <polyline t-att-points="c.assignedLine" class="l-assigned"/>
+                                    <t t-set="hp" t-value="hoverPoint"/>
+                                    <g t-if="hp">
+                                        <line t-att-x1="hp.x" t-att-x2="hp.x" t-att-y1="c.t" t-att-y2="c.h - c.b" class="cursor"/>
+                                        <circle t-att-cx="hp.x" t-att-cy="hp.y" r="4.5" class="dotp"/>
+                                    </g>
+                                </svg>
+                                <div t-if="hp" class="tip" t-attf-style="left:#{hp.left}%">
+                                    <b t-out="hp.date"/>
+                                    <div><i class="sw" style="background:#2f7bf5"/>Assigned <b t-out="hp.assigned"/></div>
+                                    <div><i class="sw dashed"/>Total <b t-out="hp.total"/></div>
+                                    <div><i class="sw" style="background:#22b573"/>Available <b t-out="hp.available"/></div>
+                                </div>
+                            </div>
+                            <div t-else="" class="m365d-empty">Not enough history yet. Trends build up as inventory is synchronised.</div>
+                        </article>
+
+                        <article class="m365d-card insights">
+                            <div class="chead">
+                                <h3>Needs attention</h3>
+                                <span t-attf-class="count #{d.alerts.length ? 'bad' : 'ok'}" t-out="d.alerts.length"/>
+                            </div>
+                            <ul class="alerts" t-if="d.alerts.length">
+                                <li t-foreach="d.alerts" t-as="a" t-key="a_index" t-attf-class="al #{a.level}" t-on-click="() => this.onAlertClick(a)">
+                                    <span class="ai"><i t-attf-class="fa #{a.icon}"/></span>
+                                    <span class="at"><b t-out="a.title"/><small t-out="a.text"/></span>
+                                </li>
+                            </ul>
+                            <div t-else="" class="allgood"><i class="fa fa-check-circle"/> Everything looks healthy.</div>
+                        </article>
+                    </section>
+
+                    <!-- ================= Charts ================= -->
+                    <section class="m365d-row r-charts">
+                        <article class="m365d-card">
+                            <h3>Utilization by product</h3>
                             <t t-foreach="products.slice(0, 8)" t-as="p" t-key="p.sku">
-                                <div class="hbar">
+                                <div class="hbar" t-att-title="p.assigned + ' of ' + p.total + ' assigned'">
                                     <span class="nm" t-out="p.name"/>
                                     <div class="tr"><div class="fl" t-attf-style="width:#{p.utilization}%;background:#{barColor(p.utilization)}"/></div>
                                     <span class="pc"><t t-out="p.utilization"/>%</span>
                                 </div>
                             </t>
                             <div t-if="!products.length" class="m365d-empty">No data</div>
-                        </div>
-                        <div class="m365d-card">
-                            <h3>License Distribution</h3>
+                        </article>
+
+                        <article class="m365d-card">
+                            <h3>License distribution</h3>
                             <div class="dist">
-                                <svg viewBox="0 0 90 90" class="big">
+                                <svg viewBox="0 0 90 90" class="big" role="img" aria-label="License distribution">
                                     <circle cx="45" cy="45" r="36" class="trk"/>
-                                    <t t-foreach="distribution" t-as="s" t-key="s.label">
-                                        <circle cx="45" cy="45" r="36" class="arc" t-att-stroke="s.color" t-att-stroke-dasharray="s.dash" t-att-stroke-dashoffset="s.offset"/>
-                                    </t>
-                                    <text x="45" y="43" text-anchor="middle" class="tt"><t t-out="k.total"/></text>
+                                    <circle t-foreach="distribution" t-as="s" t-key="s.label" cx="45" cy="45" r="36" class="arc"
+                                            t-att-stroke="s.color" t-att-stroke-dasharray="s.dash" t-att-stroke-dashoffset="s.offset"/>
+                                    <text x="45" y="44" text-anchor="middle" class="tt"><t t-out="k.total"/></text>
                                     <text x="45" y="55" text-anchor="middle" class="sb">Total</text>
                                 </svg>
                                 <ul class="lg">
-                                    <li t-foreach="distribution" t-as="s" t-key="s.label"><span class="sw" t-attf-style="background:#{s.color}"/><t t-out="s.label"/> <b><t t-out="s.value"/></b> (<t t-out="s.pct"/>%)</li>
+                                    <li t-foreach="distribution" t-as="s" t-key="s.label">
+                                        <i class="sw" t-attf-style="background:#{s.color}"/><t t-out="s.label"/>
+                                        <b t-out="s.value"/> <small>(<t t-out="s.pct"/>%)</small>
+                                    </li>
                                 </ul>
                             </div>
-                        </div>
-                        <div class="m365d-card">
-                            <h3>Tenant-wise License Overview</h3>
+                        </article>
+
+                        <article class="m365d-card">
+                            <h3>Tenant comparison</h3>
                             <t t-foreach="state.data.tenants" t-as="t" t-key="t.id">
-                                <div class="hbar">
+                                <div class="hbar" t-att-title="t.assigned + ' assigned / ' + t.available + ' available'">
                                     <span class="nm" t-out="t.name"/>
                                     <div class="tr stack">
-                                        <div class="fl" t-attf-style="width:#{segWidth(t,'assigned')}%;background:#1a6fe0"/>
-                                        <div class="fl" t-attf-style="width:#{segWidth(t,'available')}%;background:#1fa34a"/>
+                                        <div class="fl" t-attf-style="width:#{segWidth(t,'assigned')}%;background:#2f7bf5"/>
+                                        <div class="fl" t-attf-style="width:#{segWidth(t,'available')}%;background:#22b573"/>
                                     </div>
-                                    <span class="pc"><t t-out="t.total"/></span>
+                                    <span class="pc" t-out="t.total"/>
                                 </div>
                             </t>
-                            <div class="lg inline"><span class="sw" style="background:#1a6fe0"/>Assigned <span class="sw" style="background:#1fa34a"/>Available</div>
-                        </div>
-                    </div>
+                            <div class="legend inline">
+                                <span><i class="sw" style="background:#2f7bf5"/>Assigned</span>
+                                <span><i class="sw" style="background:#22b573"/>Available</span>
+                            </div>
+                        </article>
+                    </section>
 
-                    <div class="m365d-bottom">
-                        <div class="m365d-card inv">
-                            <h3>License Inventory</h3>
-                            <table class="m365d-table">
-                                <thead><tr><th>Product Name</th><th>SKU</th><th>Total</th><th>Assigned</th><th>Available</th><th>Utilization</th><th>Status</th></tr></thead>
-                                <tbody>
-                                    <tr t-foreach="pagedProducts" t-as="p" t-key="p.sku">
-                                        <td t-out="p.name"/><td class="mut" t-out="p.sku"/>
-                                        <td t-out="p.total"/><td t-out="p.assigned"/><td t-out="p.available"/>
-                                        <td><div class="tr sm"><div class="fl" t-attf-style="width:#{p.utilization}%;background:#{barColor(p.utilization)}"/></div> <t t-out="p.utilization"/>%</td>
-                                        <td><span t-attf-class="pill #{statusClass(p.status)}" t-out="p.status"/></td>
-                                    </tr>
-                                    <tr t-if="!products.length"><td colspan="7" class="m365d-empty">No inventory yet. Sync a tenant first.</td></tr>
-                                </tbody>
-                            </table>
+                    <!-- ================= Waste + activity ================= -->
+                    <section class="m365d-row r-insight">
+                        <article class="m365d-card">
+                            <h3>Cost optimisation</h3>
+                            <t t-set="w" t-value="d.waste"/>
+                            <div class="waste">
+                                <div class="wbox bad">
+                                    <b t-out="w.disabled_licenses"/>
+                                    <span>licenses on <t t-out="w.disabled_licensed_users"/> disabled accounts</span>
+                                </div>
+                                <div class="wbox">
+                                    <b t-out="w.users_licensed"/>
+                                    <span>licensed of <t t-out="w.users_total"/> users</span>
+                                </div>
+                                <div class="wbox">
+                                    <b t-out="w.users_unlicensed"/>
+                                    <span>users without a license</span>
+                                </div>
+                            </div>
+                        </article>
+                        <article class="m365d-card">
+                            <h3>Recent activity</h3>
+                            <ul class="timeline" t-if="d.activity.length">
+                                <li t-foreach="d.activity" t-as="ev" t-key="ev.id">
+                                    <span t-attf-class="tl-dot #{ev.status}"/>
+                                    <div>
+                                        <b t-out="ev.action"/> <small class="mut" t-out="ev.tenant"/>
+                                        <div class="tl-text" t-out="ev.text"/>
+                                        <small class="mut" t-out="formatWhen(ev.date)"/>
+                                    </div>
+                                </li>
+                            </ul>
+                            <div t-else="" class="m365d-empty">No activity yet.</div>
+                        </article>
+                    </section>
+
+                    <!-- ================= Inventory + operations ================= -->
+                    <section class="m365d-row r-bottom">
+                        <article class="m365d-card inv">
+                            <div class="chead wrap">
+                                <h3>License inventory</h3>
+                                <div class="tools">
+                                    <input class="m365d-input" type="search" placeholder="Search product or SKU" t-att-value="state.search" t-on-input="onSearch" aria-label="Search inventory"/>
+                                    <select class="m365d-select" t-on-change="onStatusFilter" aria-label="Filter inventory">
+                                        <option value="all" t-att-selected="state.statusFilter == 'all'">All</option>
+                                        <option value="critical" t-att-selected="state.statusFilter == 'critical'">Critical (≥90%)</option>
+                                        <option value="available" t-att-selected="state.statusFilter == 'available'">Has available</option>
+                                        <option value="inactive" t-att-selected="state.statusFilter == 'inactive'">Not active</option>
+                                    </select>
+                                    <button class="m365d-btn ghost" t-on-click="exportCsv"><i class="fa fa-download"/><span class="hide-sm"> CSV</span></button>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="m365d-table">
+                                    <thead>
+                                        <tr>
+                                            <th t-on-click="() => this.sortBy('name')">Product <i t-attf-class="fa #{sortIcon('name')}"/></th>
+                                            <th class="hide-md" t-on-click="() => this.sortBy('sku')">SKU <i t-attf-class="fa #{sortIcon('sku')}"/></th>
+                                            <th class="num" t-on-click="() => this.sortBy('total')">Total <i t-attf-class="fa #{sortIcon('total')}"/></th>
+                                            <th class="num" t-on-click="() => this.sortBy('assigned')">Assigned <i t-attf-class="fa #{sortIcon('assigned')}"/></th>
+                                            <th class="num" t-on-click="() => this.sortBy('available')">Available <i t-attf-class="fa #{sortIcon('available')}"/></th>
+                                            <th t-on-click="() => this.sortBy('utilization')">Utilization <i t-attf-class="fa #{sortIcon('utilization')}"/></th>
+                                            <th class="hide-md num" t-on-click="() => this.sortBy('days_left')" title="Estimated time until the product runs out">Runway <i t-attf-class="fa #{sortIcon('days_left')}"/></th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr t-foreach="pagedProducts" t-as="p" t-key="p.sku">
+                                            <td data-label="Product"><b t-out="p.name"/></td>
+                                            <td data-label="SKU" class="mut hide-md" t-out="p.sku"/>
+                                            <td data-label="Total" class="num" t-out="p.total"/>
+                                            <td data-label="Assigned" class="num" t-out="p.assigned"/>
+                                            <td data-label="Available" class="num" t-out="p.available"/>
+                                            <td data-label="Utilization">
+                                                <div class="util">
+                                                    <div class="tr sm"><div class="fl" t-attf-style="width:#{p.utilization}%;background:#{barColor(p.utilization)}"/></div>
+                                                    <span><t t-out="p.utilization"/>%</span>
+                                                </div>
+                                            </td>
+                                            <td data-label="Runway" class="num hide-md"><span t-attf-class="rw #{forecastClass(p)}" t-out="forecastText(p)"/></td>
+                                            <td data-label="Status"><span t-attf-class="pill #{statusClass(p.status)}" t-out="p.status"/></td>
+                                        </tr>
+                                        <tr t-if="!pagedProducts.length"><td colspan="8" class="m365d-empty">No inventory matches. Sync a tenant first or clear the filters.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
                             <div class="pager">
                                 <span t-out="pageInfo"/>
-                                <button t-on-click="prevPage" t-att-disabled="state.page == 0">&lt;</button>
-                                <button t-on-click="nextPage" t-att-disabled="state.page >= pageCount - 1">&gt;</button>
+                                <div class="pgs">
+                                    <button t-on-click="prevPage" t-att-disabled="state.page == 0" aria-label="Previous page">‹</button>
+                                    <button t-foreach="pages" t-as="n" t-key="n" t-attf-class="#{n == state.page ? 'on' : ''}" t-on-click="() => this.setPage(n)" t-out="n + 1"/>
+                                    <button t-on-click="nextPage" t-att-disabled="state.page >= pageCount - 1" aria-label="Next page">›</button>
+                                </div>
                             </div>
-                        </div>
+                        </article>
 
-                        <div class="m365d-card ops">
-                            <h3>User License Management</h3>
-                            <div class="tabs">
-                                <button t-attf-class="#{state.tab == 'assign' ? 'on' : ''}" t-on-click="() => this.setTab('assign')">Assign License</button>
-                                <button t-attf-class="#{state.tab == 'remove' ? 'on' : ''}" t-on-click="() => this.setTab('remove')">Remove License</button>
+                        <article class="m365d-card ops">
+                            <h3>User license management</h3>
+                            <div class="tabs" role="tablist">
+                                <button role="tab" t-attf-class="#{state.tab == 'assign' ? 'on' : ''}" t-on-click="() => this.setTab('assign')">Assign license</button>
+                                <button role="tab" t-attf-class="#{state.tab == 'remove' ? 'on' : ''}" t-on-click="() => this.setTab('remove')">Remove license</button>
                             </div>
-                            <label>Select Tenant</label>
-                            <select class="m365d-select w100" t-on-change="onTenantChange">
+                            <label for="m365-tenant">Tenant</label>
+                            <select id="m365-tenant" class="m365d-select w100" t-on-change="onTenantChange">
                                 <option t-foreach="state.data.tenants" t-as="t" t-key="t.id" t-att-value="t.id" t-att-selected="String(t.id) == state.form.tenantId" t-out="t.name"/>
                             </select>
-                            <label>Select User</label>
+                            <label for="m365-user">User</label>
                             <div class="ac">
-                                <input class="m365d-input" placeholder="Search by name or email" t-att-value="state.form.userQuery" t-on-input="onUserInput"/>
+                                <input id="m365-user" class="m365d-input" autocomplete="off" placeholder="Search by name or email" t-att-value="state.form.userQuery" t-on-input="onUserInput"/>
                                 <ul t-if="state.userResults.length" class="ac-list">
                                     <li t-foreach="state.userResults" t-as="u" t-key="u.id" t-on-click="() => this.pickUser(u)">
                                         <b t-out="u.name"/> <span class="mut" t-out="u.user_principal_name"/>
                                     </li>
                                 </ul>
                             </div>
-                            <label>Select License</label>
-                            <select class="m365d-select w100" t-model="state.form.skuId">
+                            <label for="m365-sku">License</label>
+                            <select id="m365-sku" class="m365d-select w100" t-model="state.form.skuId">
                                 <option value="">-- Select --</option>
                                 <option t-foreach="skuOptions" t-as="s" t-key="s.id" t-att-value="s.id"><t t-out="s.name"/> (<t t-out="s.available_units"/> free)</option>
                             </select>
-                            <label>Business Justification</label>
-                            <input class="m365d-input" t-model="state.form.reason" placeholder="Optional"/>
+                            <label for="m365-reason">Business justification</label>
+                            <input id="m365-reason" class="m365d-input" t-model="state.form.reason" placeholder="Optional"/>
                             <button class="m365d-primary" t-on-click="submitRequest" t-att-disabled="state.submitting">
-                                <t t-out="state.tab == 'assign' ? 'Assign License' : 'Remove License'"/>
+                                <i t-attf-class="fa #{state.tab == 'assign' ? 'fa-plus' : 'fa-minus'}"/>
+                                <t t-out="state.tab == 'assign' ? ' Assign license' : ' Remove license'"/>
                             </button>
-                        </div>
-                    </div>
+                        </article>
+                    </section>
                 </main>
-                <main class="m365d-main" t-else=""><div class="m365d-empty">Loading…</div></main>
+
+                <!-- ================= Skeleton ================= -->
+                <main class="m365d-main" t-else="">
+                    <div class="m365d-skel kp"/><div class="m365d-skel ch"/><div class="m365d-skel ch"/>
+                </main>
             </div>
         </div>
     </t>

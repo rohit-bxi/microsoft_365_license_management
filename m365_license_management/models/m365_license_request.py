@@ -185,12 +185,9 @@ class M365LicenseRequest(models.Model):
             if not tenant.allow_license_operations:
                 raise M365GraphError(_("License operations are disabled for this tenant."))
             if self.request_type == 'assign':
-                body = {'addLicenses': [{'skuId': sku.sku_id, 'disabledPlans': []}],
-                        'removeLicenses': []}
+                tenant.graph_assign_license(user.graph_id, add_sku_ids=[sku.sku_id])
             else:
-                body = {'addLicenses': [], 'removeLicenses': [sku.sku_id]}
-            tenant._graph_request('POST', '/users/%s/assignLicense' % user.graph_id,
-                                  json_body=body)
+                tenant.graph_assign_license(user.graph_id, remove_sku_ids=[sku.sku_id])
         except M365GraphError as exc:
             self.write({'state': 'failed', 'error_message': str(exc)})
             tenant._log(action, 'failed', _("%(ref)s - %(user)s / %(sku)s: %(err)s",

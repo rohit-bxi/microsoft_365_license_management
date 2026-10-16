@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from odoo import fields, models
+from datetime import timedelta
+
+from odoo import api, fields, models
 
 
 class M365AuditLog(models.Model):
@@ -17,6 +19,9 @@ class M365AuditLog(models.Model):
         ('sync_users', 'User Synchronisation'),
         ('assign_license', 'Assign License'),
         ('remove_license', 'Remove License'),
+        ('refresh_user', 'User Refresh'),
+        ('update_user', 'Update User'),
+        ('webhook', 'Webhook'),
         ('request', 'License Request'),
         ('notification', 'Notification'),
     ], string="Operation", readonly=True, required=True)
@@ -31,3 +36,12 @@ class M365AuditLog(models.Model):
     user_id = fields.Many2one('res.users', string="Performed By", readonly=True,
                               default=lambda self: self.env.user)
     company_id = fields.Many2one(related='tenant_id.company_id', store=True)
+
+    @api.model
+    def _cron_cleanup(self):
+        """Purge entries older than ``m365.audit_retention_days`` (default 365)."""
+        days = int(self.env['ir.config_parameter'].sudo().get_param(
+            'm365.audit_retention_days', 365))
+        if days <= 0:
+            return  # 0 = keep forever
+        self.sudo().search([('date', '<', fields.Datetime.now() - timedelta(days=days))]).unlink()

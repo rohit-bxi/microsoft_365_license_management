@@ -108,6 +108,44 @@
                                 </group>
                             </group>
                         </page>
+                        <page string="Live Sync" name="live_sync"
+                              groups="m365_license_management.group_m365_admin">
+                            <group>
+                                <group string="Delta Synchronisation">
+                                    <field name="use_delta_sync"/>
+                                    <button name="action_reset_delta" type="object"
+                                            string="Force full user re-read" class="btn-link"
+                                            invisible="not use_delta_sync"/>
+                                </group>
+                                <group string="Webhook (change notifications)">
+                                    <field name="webhook_url" readonly="1"/>
+                                    <field name="webhook_enabled"/>
+                                    <field name="webhook_subscription_id"
+                                           invisible="not webhook_enabled"/>
+                                    <field name="webhook_expiry" invisible="not webhook_enabled"/>
+                                    <field name="webhook_last_received"/>
+                                    <div colspan="2">
+                                        <button name="action_webhook_subscribe" type="object"
+                                                string="Subscribe" class="btn-primary me-2"
+                                                invisible="webhook_enabled or state == 'draft'"/>
+                                        <button name="action_webhook_subscribe" type="object"
+                                                string="Re-create" class="me-2"
+                                                invisible="not webhook_enabled"/>
+                                        <button name="action_webhook_unsubscribe" type="object"
+                                                string="Unsubscribe"
+                                                invisible="not webhook_enabled"/>
+                                    </div>
+                                </group>
+                            </group>
+                            <div class="alert alert-info" role="alert">
+                                Microsoft calls the notification URL when a user changes, so
+                                license changes made in the Microsoft 365 admin center appear
+                                within about a minute. Requires a public <b>HTTPS</b> address
+                                (system parameter <code>web.base.url</code>) and Odoo running
+                                with workers. Subscribed SKUs have no notification and are
+                                refreshed on each notification and every 30 minutes.
+                            </div>
+                        </page>
                         <page string="Products" name="products">
                             <field name="sku_ids" readonly="1">
                                 <list>

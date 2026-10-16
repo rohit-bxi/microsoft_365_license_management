@@ -8,6 +8,7 @@ from markupsafe import Markup, escape
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools import config
 
 _logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ class M365Tenant(models.Model):
     last_sync_date = fields.Datetime(string="Last Inventory Sync", readonly=True, copy=False)
     last_user_sync_date = fields.Datetime(string="Last User Sync", readonly=True, copy=False)
     last_error = fields.Text(string="Last Error", readonly=True, copy=False)
+    failure_count = fields.Integer(string="Consecutive Sync Failures", readonly=True,
+                                   copy=False)
 
     # ------------------------------------------------------------------
     # Relations / statistics
@@ -325,12 +328,21 @@ class M365Tenant(models.Model):
         self.write({'last_user_sync_date': now})
         return len(items)
 
+    def _try_lock(self):
+        """Transaction-level lock so a cron run and a manual sync never overlap."""
+        self.ensure_one()
+        self.env.cr.execute("SELECT pg_try_advisory_xact_lock(%s, %s)",
+                            (73650, self.id))
+        return self.env.cr.fetchone()[0]
+
     def _sync_all_safe(self):
         """Synchronise inventory (+ users). Never raises; failures are logged.
 
         :return: (ok: bool, messages: list[str])
         """
         self.ensure_one()
+        if not self._try_lock():
+            return False, [_("%s: a synchronisation is already running.", self.name)]
         messages, ok = [], True
         try:
             count = self._sync_inventory()
@@ -338,7 +350,7 @@ class M365Tenant(models.Model):
             self._log('sync_inventory', 'success', msg)
             messages.append("%s: %s" % (self.name, msg))
         except M365GraphError as exc:
-            self.write({'state': 'error', 'last_error': str(exc)})
+            self._register_failure(str(exc))
             self._log('sync_inventory', 'failed', str(exc))
             return False, ["%s: %s" % (self.name, exc)]
         if self.sync_users:
@@ -352,14 +364,37 @@ class M365Tenant(models.Model):
                 self.write({'last_error': str(exc)})
                 self._log('sync_users', 'failed', str(exc))
                 messages.append("%s: %s" % (self.name, exc))
+        if ok:
+            self.failure_count = 0
         return ok, messages
+
+    FAILURE_ALERT_THRESHOLD = 3
+
+    def _register_failure(self, error):
+        """Store the error and alert administrators when failures repeat."""
+        self.ensure_one()
+        count = self.failure_count + 1
+        self.write({'state': 'error', 'last_error': error, 'failure_count': count})
+        if count == self.FAILURE_ALERT_THRESHOLD:
+            self.message_post(
+                body=Markup("<p>%s</p><p>%s</p>") % (
+                    escape(_("Synchronisation of tenant %(name)s failed %(count)s times in a "
+                             "row.", name=self.name, count=count)), escape(error)),
+                subject=_("Microsoft 365 synchronisation failing - %s", self.name),
+                partner_ids=self._admin_partners().ids, subtype_xmlid='mail.mt_comment')
 
     @api.model
     def _cron_sync_all(self):
         tenants = self.search([('sync_enabled', '=', True),
                                ('state', 'in', ('connected', 'error'))])
         for tenant in tenants:
-            tenant._sync_all_safe()
+            try:
+                tenant._sync_all_safe()
+            except Exception:  # unexpected (DB, bug): keep the other tenants running
+                self.env.cr.rollback()
+                _logger.exception("Microsoft 365 sync crashed for tenant %s", tenant.id)
+            if not config['test_enable']:
+                self.env.cr.commit()
 
     # ------------------------------------------------------------------
     # Notifications
@@ -414,16 +449,40 @@ class M365Tenant(models.Model):
             params['next'] = {'type': 'ir.actions.client', 'tag': 'soft_reload'}
         return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': params}
 
+    def _probe_permissions(self):
+        """Check the Graph permissions actually granted to the app.
+
+        :return: list of human readable warnings (empty = all good)
+        """
+        self.ensure_one()
+        warnings = []
+        probes = [
+            ('/subscribedSkus', {}, _("license inventory (Organization.Read.All)")),
+        ]
+        if self.sync_users:
+            probes.append(('/users', {'$top': '1', '$select': 'id'},
+                           _("user directory (User.Read.All)")))
+        for path, params, label in probes:
+            try:
+                self._graph_request('GET', path, params=params or None)
+            except M365GraphError as exc:
+                warnings.append(_("No access to the %(what)s: %(err)s", what=label, err=exc))
+        return warnings
+
     def action_test_connection(self):
         messages, ok = [], True
         for tenant in self:
             try:
                 org = tenant._graph_request('GET', '/organization',
                                             params={'$select': 'id,displayName'}, paginate=True)
-                tenant.write({'state': 'connected', 'last_error': False})
+                tenant.write({'state': 'connected', 'last_error': False, 'failure_count': 0})
                 label = org[0].get('displayName') if org else tenant.name
                 msg = _("Connected to Microsoft 365 organisation \"%s\".", label)
-                tenant._log('test_connection', 'success', msg)
+                warnings = tenant._probe_permissions()
+                if warnings:
+                    ok = False
+                    msg = "%s %s" % (msg, " ".join(warnings))
+                tenant._log('test_connection', 'failed' if warnings else 'success', msg)
                 messages.append("%s: %s" % (tenant.name, msg))
             except M365GraphError as exc:
                 ok = False
