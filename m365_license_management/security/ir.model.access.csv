@@ -1,0 +1,14 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_m365_tenant_user,m365.tenant user,model_m365_tenant,m365_license_management.group_m365_user,1,0,0,0
+access_m365_tenant_admin,m365.tenant admin,model_m365_tenant,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_product_user,m365.product user,model_m365_product,m365_license_management.group_m365_user,1,0,0,0
+access_m365_product_admin,m365.product admin,model_m365_product,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_sku_user,m365.sku user,model_m365_sku,m365_license_management.group_m365_user,1,0,0,0
+access_m365_sku_admin,m365.sku admin,model_m365_sku,m365_license_management.group_m365_admin,1,1,0,1
+access_m365_snapshot_user,m365.inventory.snapshot user,model_m365_inventory_snapshot,m365_license_management.group_m365_user,1,0,0,0
+access_m365_snapshot_admin,m365.inventory.snapshot admin,model_m365_inventory_snapshot,m365_license_management.group_m365_admin,1,0,0,1
+access_m365_license_user_user,m365.license.user user,model_m365_license_user,m365_license_management.group_m365_user,1,0,0,0
+access_m365_license_user_admin,m365.license.user admin,model_m365_license_user,m365_license_management.group_m365_admin,1,1,0,1
+access_m365_request_user,m365.license.request user,model_m365_license_request,m365_license_management.group_m365_user,1,1,1,0
+access_m365_request_admin,m365.license.request admin,model_m365_license_request,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_audit_admin,m365.audit.log admin,model_m365_audit_log,m365_license_management.group_m365_admin,1,0,0,0

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="ir_cron_m365_sync_tenants" model="ir.cron">
+        <field name="name">Microsoft 365: Synchronise Tenants</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_sync_all()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">6</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_cleanup_snapshots" model="ir.cron">
+        <field name="name">Microsoft 365: Purge Old Inventory Snapshots</field>
+        <field name="model_id" ref="model_m365_inventory_snapshot"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

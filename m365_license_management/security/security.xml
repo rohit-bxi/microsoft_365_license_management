@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Privilege -->
+    <record id="res_groups_privilege_m365" model="res.groups.privilege">
+        <field name="name">Microsoft 365 Licenses</field>
+        <field name="sequence">25</field>
+        <field name="category_id" ref="base.module_category_services"/>
+        <field name="placeholder">No</field>
+    </record>
+
+    <!-- Users: dashboard, inventory, own requests (read mostly) -->
+    <record id="group_m365_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="res_groups_privilege_m365"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <!-- Administrators: tenant configuration, approvals, audit logs -->
+    <record id="group_m365_admin" model="res.groups">
+        <field name="name">Administrator</field>
+        <field name="sequence">20</field>
+        <field name="privilege_id" ref="res_groups_privilege_m365"/>
+        <field name="implied_ids" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_root')), (4, ref('base.user_admin'))]"/>
+    </record>
+
+    <!-- Multi-company -->
+    <record id="m365_tenant_company_rule" model="ir.rule">
+        <field name="name">Microsoft 365 Tenant: multi-company</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <!-- Request visibility: users see their own, administrators see all -->
+    <record id="m365_request_user_rule" model="ir.rule">
+        <field name="name">License Request: own requests</field>
+        <field name="model_id" ref="model_m365_license_request"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('requested_by', '=', user.id)]</field>
+    </record>
+    <record id="m365_request_admin_rule" model="ir.rule">
+        <field name="name">License Request: administrators see all</field>
+        <field name="model_id" ref="model_m365_license_request"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>
