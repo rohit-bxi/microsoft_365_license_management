@@ -26,6 +26,12 @@
                     <button name="action_request_assign" type="object" string="Request License"
                             class="btn-primary"/>
                     <button name="action_request_remove" type="object" string="Request Removal"/>
+                    <button name="action_refresh_from_graph" type="object"
+                            string="Refresh from Microsoft 365"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_set_usage_location" type="object"
+                            string="Set Usage Location"
+                            groups="m365_license_management.group_m365_admin"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
@@ -77,6 +83,24 @@
                     <filter name="group_dept" string="Department" context="{'group_by': 'department'}"/>
                 </group>
             </search>
+        </field>
+    </record>
+
+    <record id="view_m365_usage_location_wizard" model="ir.ui.view">
+        <field name="name">m365.usage.location.wizard.form</field>
+        <field name="model">m365.usage.location.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Set Usage Location">
+                <group>
+                    <field name="user_id"/>
+                    <field name="country_id" options="{'no_create': True}"/>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Apply to Microsoft 365"
+                            class="btn-primary" data-hotkey="q"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
         </field>
     </record>
 

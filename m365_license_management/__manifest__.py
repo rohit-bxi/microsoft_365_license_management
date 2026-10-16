@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment and audit via Microsoft Graph',
@@ -17,6 +17,9 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 * User directory synchronisation (GET /users) with current licenses
 * License assignment / removal requests with approval workflow
   (POST /users/{id}/assignLicense)
+* REST API (/m365/api/v1, Odoo API-key bearer auth) and CSV export
+* Per-user live license details, usage location update (PATCH /users/{id})
+* Near real-time sync: Graph delta queries + change notification webhook
 * Audit log of every successful and failed operation
 * Scheduled synchronisation and low-availability notifications
 * Dashboard: totals, utilisation by product, distribution, tenant comparison
