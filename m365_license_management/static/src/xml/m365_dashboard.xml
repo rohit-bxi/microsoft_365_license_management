@@ -343,7 +343,7 @@
                             </div>
                             <label for="m365-tenant">Tenant</label>
                             <select id="m365-tenant" class="m365d-select w100" t-on-change="onTenantChange">
-                                <option t-foreach="state.data.tenants" t-as="t" t-key="t.id" t-att-value="t.id" t-att-selected="String(t.id) == state.form.tenantId" t-out="t.name"/>
+                                <option t-foreach="state.data.tenants" t-as="t" t-key="t.id" t-att-value="t.id" t-att-selected="t.id == state.form.tenantId" t-out="t.name"/>
                             </select>
                             <label for="m365-user">User</label>
                             <div class="ac">
