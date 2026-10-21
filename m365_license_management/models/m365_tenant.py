@@ -437,8 +437,7 @@ class M365Tenant(models.Model):
     # ------------------------------------------------------------------
     # Buttons
     # ------------------------------------------------------------------
-    @staticmethod
-    def _notify(message, ntype='success', reload=True):
+    def _notify(self, message, ntype='success', reload=True):
         params = {
             'title': _("Microsoft 365"),
             'message': message,
@@ -471,6 +470,7 @@ class M365Tenant(models.Model):
 
     def action_test_connection(self):
         messages, ok = [], True
+        connected, partial, failed = [], [], []
         for tenant in self:
             try:
                 org = tenant._graph_request('GET', '/organization',
@@ -482,14 +482,25 @@ class M365Tenant(models.Model):
                 if warnings:
                     ok = False
                     msg = "%s %s" % (msg, " ".join(warnings))
+                (partial if warnings else connected).append(tenant.name)
                 tenant._log('test_connection', 'failed' if warnings else 'success', msg)
                 messages.append("%s: %s" % (tenant.name, msg))
             except M365GraphError as exc:
                 ok = False
+                failed.append(tenant.name)
                 tenant.write({'state': 'error', 'last_error': str(exc)})
                 tenant._log('test_connection', 'failed', str(exc))
                 messages.append("%s: %s" % (tenant.name, exc))
-        return self._notify("\n".join(messages), 'success' if ok else 'danger')
+        if len(self) > 1:
+            # Bulk test from the list view: one line per result, details in the audit log
+            groups = [(_("Connected"), connected),
+                      (_("Connected with missing permissions"), partial),
+                      (_("Failed"), failed)]
+            messages = ["%s: %s." % (label, ", ".join(names)) for label, names in groups
+                        if names]
+            if not ok:
+                messages.append(_("Open the tenant or the Audit Logs for the details."))
+        return self._notify(" ".join(messages), 'success' if ok else 'danger')
 
     def action_sync_inventory(self):
         messages, ok = [], True
