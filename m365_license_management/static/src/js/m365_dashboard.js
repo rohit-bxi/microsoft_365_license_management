@@ -505,19 +505,9 @@ export class M365Dashboard extends Component {
         }
     }
     openBulk() {
-        const f = this.state.form;
-        const context = { default_request_type: this.state.tab };
-        if (f.tenantId) {
-            context.default_tenant_id = parseInt(f.tenantId, 10);
-        }
-        if (f.user) {
-            context.default_user_ids = [f.user.id];
-        }
-        if (f.skuId) {
-            context.default_sku_ids = [parseInt(f.skuId, 10)];
-        }
+        // The tenants, users and licenses come from the uploaded file
         this.action.doAction("m365_license_management.action_m365_license_bulk", {
-            additionalContext: context,
+            additionalContext: { default_request_type: this.state.tab },
             onClose: async () => {
                 await this.load(true);
                 await this.loadSkus();
