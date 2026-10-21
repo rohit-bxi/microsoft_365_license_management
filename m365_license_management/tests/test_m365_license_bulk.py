@@ -210,6 +210,43 @@ class TestM365LicenseBulk(TransactionCase):
         self.assertEqual(set(wizard.line_ids.mapped('request_id.state')), {'submitted'})
         self.assertFalse(mocked.called)
 
+    def test_pending_and_ambiguous_rows(self):
+        self.env['m365.license.request'].create({
+            'tenant_id': self.tenant.id, 'user_id': self.users[1].id, 'sku_id': self.sku.id,
+            'state': 'submitted'})
+        self.users[2:4].write({'mail': 'shared@bulk.com'})
+        # Semicolon separated CSV without the optional column
+        content = 'Tenant;User;License\nbulk.com;user1@bulk.com;E3\nbulk.com;shared@bulk.com;E3\n'
+        wizard = self.env['m365.license.bulk.wizard'].create({
+            'request_type': 'assign', 'file': base64.b64encode(content.encode()),
+            'filename': 'licenses.csv'})
+        wizard.action_verify()
+        self.assertEqual(wizard.line_ids.mapped('message'), [
+            'A similar request is already pending for this user and license.',
+            'User "shared@bulk.com" matches several records: User 2, User 3.',
+        ])
+        self.assertFalse(wizard.line_ids[1].user_id)
+
+    def test_execute_once(self):
+        wizard = self._wizard('assign', [('bulk.com', 'user1@bulk.com', 'E3')])
+        wizard.action_verify()
+
+        def graph(method, path, params=None, json_body=None, paginate=False):
+            if path == '/subscribedSkus':
+                raise M365GraphError('HTTP 503 - ServiceUnavailable')
+            return {}
+
+        with patch(TENANT_PATH, side_effect=graph):
+            wizard.action_execute()
+        # Assigned even if the inventory could not be synchronised afterwards
+        self.assertEqual(wizard.line_ids.status, 'done')
+        self.assertEqual(self.users[1].sku_ids, self.sku)
+        with patch(TENANT_PATH, side_effect=graph) as mocked:
+            action = wizard.action_execute()
+        self.assertFalse(mocked.called)
+        self.assertEqual(action['res_id'], wizard.id)
+        self.assertEqual(len(self._requests()), 1)
+
     def test_file_errors(self):
         for header, error in ((('Tenant', 'User'), 'Missing required column'),
                               (HEADER + ('Colour',), 'Unknown column'),
