@@ -11,3 +11,4 @@ from . import test_m365_license_user
 from . import test_m365_live
 from . import test_m365_sync
 from . import test_m365_tenant_import
+from . import test_m365_tenant_provision

@@ -24,6 +24,7 @@ class M365AuditLog(models.Model):
         ('webhook', 'Webhook'),
         ('request', 'License Request'),
         ('notification', 'Notification'),
+        ('provision_tenant', 'Tenant Creation'),
     ], string="Operation", readonly=True, required=True)
     status = fields.Selection([
         ('success', 'Success'),
