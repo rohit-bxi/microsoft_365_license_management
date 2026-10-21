@@ -365,6 +365,9 @@
                                 <i t-attf-class="fa #{state.tab == 'assign' ? 'fa-plus' : 'fa-minus'}"/>
                                 <t t-out="state.tab == 'assign' ? ' Assign license' : ' Remove license'"/>
                             </button>
+                            <button class="m365d-secondary" t-on-click="openBulk">
+                                <i class="fa fa-users"/> Bulk assign / remove
+                            </button>
                         </article>
                     </section>
                 </main>

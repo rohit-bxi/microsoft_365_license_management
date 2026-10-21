@@ -208,6 +208,16 @@
         </field>
     </record>
 
+    <record id="action_m365_tenant_test_connection" model="ir.actions.server">
+        <field name="name">Test Connection</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="binding_model_id" ref="model_m365_tenant"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_test_connection()</field>
+    </record>
+
     <record id="action_m365_tenant" model="ir.actions.act_window">
         <field name="name">Tenants</field>
         <field name="res_model">m365.tenant</field>

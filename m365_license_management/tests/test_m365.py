@@ -52,6 +52,29 @@ class TestM365(TransactionCase):
         self.assertEqual(self.tenant.failure_count, 3)
         self.assertEqual(self.tenant.state, 'error')
 
+    def test_test_connection_from_list(self):
+        other = self.env['m365.tenant'].create({
+            'name': 'Other', 'domain': 'other.com', 'tenant_id': 'tid2', 'client_id': 'cid2',
+            'client_secret': 'secret'})
+        tenants = self.tenant | other
+
+        def graph(tenant, method, path, params=None, json_body=None, paginate=False):
+            if tenant == other:
+                raise M365GraphError('AADSTS700016')
+            return [{'displayName': 'Test Org'}] if path == '/organization' else []
+
+        server_action = self.env.ref(
+            'm365_license_management.action_m365_tenant_test_connection')
+        with patch(TENANT_PATH, autospec=True, side_effect=graph):
+            action = server_action.with_context(
+                active_model='m365.tenant', active_ids=tenants.ids).run()
+        self.assertEqual((self.tenant.state, other.state), ('connected', 'error'))
+        self.assertEqual(other.last_error, 'AADSTS700016')
+        params = action['params']
+        self.assertEqual(params['type'], 'danger')
+        self.assertIn('Connected: Test.', params['message'])
+        self.assertIn('Failed: Other.', params['message'])
+
     def test_assign_request_flow(self):
         with patch(TENANT_PATH, side_effect=self._graph):
             self.tenant._sync_all_safe()

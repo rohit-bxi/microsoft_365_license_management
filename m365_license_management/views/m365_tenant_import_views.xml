@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_tenant_import_wizard" model="ir.ui.view">
+        <field name="name">m365.tenant.import.wizard.form</field>
+        <field name="model">m365.tenant.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Tenants">
+                <div class="alert alert-info" role="alert" invisible="line_count">
+                    Upload a <b>CSV</b> or <b>Excel (.xlsx)</b> file with one tenant per row and
+                    press <b>Validate</b>. Use <b>Download Template</b> for the columns:
+                    <i>Tenant Name</i>, <i>Primary Domain</i>, <i>Directory (Tenant) ID</i> and
+                    <i>Application (Client) ID</i> are required. Blank endpoint URLs use the
+                    defaults and blank TRUE/FALSE switches are set to TRUE. The template
+                    contains 4 example tenants: replace or delete them before importing your
+                    own tenants. Tenants are created only when every row is valid.
+                </div>
+                <div class="alert alert-success" role="alert"
+                     invisible="not line_count or error_count">
+                    All <field name="line_count" class="d-inline"/> rows are valid. Press
+                    <b>Create Tenants</b> to create them.
+                </div>
+                <div class="alert alert-danger" role="alert" invisible="not error_count">
+                    <field name="error_count" class="d-inline"/> row(s) contain errors. Correct
+                    the file, upload it again and press <b>Validate</b>. No tenant is created
+                    until every row is valid.
+                </div>
+                <group>
+                    <field name="file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
+                </group>
+                <field name="line_ids" readonly="1" invisible="not line_count">
+                    <list decoration-danger="status == 'error'">
+                        <field name="sn"/>
+                        <field name="name"/>
+                        <field name="domain"/>
+                        <field name="directory_id"/>
+                        <field name="client_id" optional="hide"/>
+                        <field name="status" widget="badge"
+                               decoration-success="status == 'valid'"
+                               decoration-danger="status == 'error'"/>
+                        <field name="message"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_validate" type="object" string="Validate"
+                            class="btn-primary" data-hotkey="v"
+                            invisible="line_count and not error_count"/>
+                    <button name="action_import" type="object" string="Create Tenants"
+                            class="btn-primary" data-hotkey="q"
+                            invisible="not line_count or error_count"/>
+                    <button name="action_download_template" type="object"
+                            string="Download Template" class="btn-secondary"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_tenant_import" model="ir.actions.act_window">
+        <field name="name">Import Tenants</field>
+        <field name="res_model">m365.tenant.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

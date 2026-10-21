@@ -201,6 +201,8 @@ class M365LicenseRequest(models.Model):
         tenant._log(action, 'success', _("%(ref)s - %(user)s / %(sku)s completed.",
                                          ref=self.name, user=user.name, sku=sku.name),
                     request=self)
+        if self.env.context.get('m365_defer_inventory_sync'):
+            return True  # bulk operations synchronise once at the end
         try:
             tenant._sync_inventory()
         except M365GraphError:

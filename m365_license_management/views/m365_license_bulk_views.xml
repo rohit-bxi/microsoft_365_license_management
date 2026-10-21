@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_license_bulk_wizard" model="ir.ui.view">
+        <field name="name">m365.license.bulk.wizard.form</field>
+        <field name="model">m365.license.bulk.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Bulk Assign / Remove Licenses">
+                <field name="state" invisible="1"/>
+                <div class="alert alert-info" role="alert" invisible="state == 'done'">
+                    A license request is created for every selected user and license. Requests
+                    of administrators are executed at once when the tenant auto-approves them,
+                    the others wait for approval. Users who already have (or do not have) a
+                    license are skipped.
+                </div>
+                <div class="alert alert-success" role="alert" invisible="state != 'done'">
+                    Completed: <field name="done_count" class="d-inline"/> ·
+                    Waiting approval: <field name="submitted_count" class="d-inline"/> ·
+                    Skipped: <field name="skipped_count" class="d-inline"/> ·
+                    Failed: <field name="failed_count" class="d-inline"/>
+                </div>
+                <group invisible="state == 'done'">
+                    <field name="tenant_id" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="request_type" widget="radio" options="{'horizontal': true}"/>
+                    <field name="user_ids" widget="many2many_tags"
+                           options="{'no_create': True}"/>
+                    <field name="sku_ids" widget="many2many_tags"
+                           options="{'no_create': True}"/>
+                    <field name="reason" placeholder="Optional"/>
+                </group>
+                <field name="line_ids" readonly="1" invisible="state != 'done'">
+                    <list decoration-danger="status == 'failed'"
+                          decoration-muted="status == 'skipped'">
+                        <field name="user_id"/>
+                        <field name="sku_id"/>
+                        <field name="status" widget="badge"
+                               decoration-success="status == 'done'"
+                               decoration-info="status == 'submitted'"
+                               decoration-danger="status == 'failed'"/>
+                        <field name="request_id" optional="show"/>
+                        <field name="message"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_execute" type="object" string="Assign Licenses"
+                            class="btn-primary" data-hotkey="q"
+                            invisible="state == 'done' or request_type != 'assign'"/>
+                    <button name="action_execute" type="object" string="Remove Licenses"
+                            class="btn-danger" data-hotkey="q"
+                            invisible="state == 'done' or request_type != 'remove'"
+                            confirm="Remove the selected licenses from all the selected users?"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"
+                            invisible="state == 'done'"/>
+                    <button string="Close" special="cancel" class="btn-primary" data-hotkey="x"
+                            invisible="state != 'done'"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_license_bulk" model="ir.actions.act_window">
+        <field name="name">Bulk Assign / Remove Licenses</field>
+        <field name="res_model">m365.license.bulk.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>
