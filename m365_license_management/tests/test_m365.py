@@ -21,6 +21,8 @@ class TestM365(TransactionCase):
             'name': 'Test', 'domain': 'test.com', 'tenant_id': 'tid',
             'client_id': 'cid', 'client_secret': 'secret',
             'allow_license_operations': True, 'state': 'connected',
+            # Full user reads (GET /users); delta queries are tested in test_m365_live
+            'use_delta_sync': False,
         })
 
     def _graph(self, method, path, params=None, json_body=None, paginate=False):
@@ -108,59 +110,3 @@ class TestM365(TransactionCase):
         with patch(TENANT_PATH, return_value={}):
             user.set_usage_location('in')
         self.assertEqual(user.usage_location, 'IN')
-
-
-@tagged('post_install', '-at_install')
-class TestM365Live(TransactionCase):
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.tenant = cls.env['m365.tenant'].create({
-            'name': 'Live', 'domain': 'live.com', 'tenant_id': 'tid2',
-            'client_id': 'cid', 'client_secret': 's', 'state': 'connected'})
-        cls.sku = cls.env['m365.sku'].create({
-            'tenant_id': cls.tenant.id, 'sku_id': GUID_A, 'sku_part_number': 'X'})
-
-    def test_delta_initial_then_incremental_and_removed(self):
-        calls = []
-
-        def graph(method, path, params=None, **kw):
-            calls.append(path)
-            if path == '/users/delta':
-                return {'value': [{'id': USER_ID, 'displayName': 'Jane',
-                                   'userPrincipalName': 'j@live.com', 'accountEnabled': True,
-                                   'assignedLicenses': [{'skuId': GUID_A}]}],
-                        '@odata.deltaLink': 'https://graph/delta?token=1'}
-            if 'token=1' in path:
-                return {'value': [{'id': USER_ID, 'assignedLicenses': []}],
-                        '@odata.deltaLink': 'https://graph/delta?token=2'}
-            return {'value': [{'id': USER_ID, '@removed': {'reason': 'deleted'}}],
-                    '@odata.deltaLink': 'https://graph/delta?token=3'}
-
-        with patch(TENANT_PATH, side_effect=graph):
-            self.tenant._sync_users_delta()
-            user = self.tenant.user_ids
-            self.assertEqual(user.sku_ids, self.sku)
-            self.tenant._sync_users_delta()          # partial item: licenses removed only
-            self.assertFalse(user.sku_ids)
-            self.assertEqual(user.name, 'Jane')
-            self.tenant._sync_users_delta()          # @removed -> archived
-        self.assertFalse(user.active)
-        self.assertIn('token=2', calls[2])
-
-    def test_webhook_client_state(self):
-        self.tenant.write({'webhook_enabled': True, 'webhook_subscription_id': 'sub1',
-                           'webhook_client_state': 'secret-state'})
-        Tenant = self.env['m365.tenant']
-        bad = [{'subscriptionId': 'sub1', 'clientState': 'nope'}]
-        good = [{'subscriptionId': 'sub1', 'clientState': 'secret-state'}]
-        self.assertEqual(Tenant._webhook_receive(self.tenant.id, bad), 0)
-        self.assertFalse(self.tenant.webhook_pending)
-        self.assertEqual(Tenant._webhook_receive(self.tenant.id, good), 1)
-        self.assertTrue(self.tenant.webhook_pending)
-
-    def test_subscribe_requires_https(self):
-        self.env['ir.config_parameter'].sudo().set_param('web.base.url', 'http://localhost')
-        with self.assertRaises(Exception):
-            self.tenant.action_webhook_subscribe()

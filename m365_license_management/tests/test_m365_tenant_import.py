@@ -19,6 +19,16 @@ HEADER = ('Tenant Name,Primary Domain,Directory (Tenant) ID,Application (Client)
 @tagged('post_install', '-at_install')
 class TestM365TenantImport(TransactionCase):
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The tenants of the database (e.g. imported from the template) must not clash
+        # with the rows of the test files, which have to be unique among all tenants
+        for tenant in cls.env['m365.tenant'].with_context(active_test=False).search([]):
+            tenant.write({'name': 'Tenant %s' % tenant.id,
+                          'domain': 'tenant-%s.example' % tenant.id,
+                          'tenant_id': 'tenant-%s' % tenant.id})
+
     def _wizard(self, content, filename='tenants.csv'):
         if isinstance(content, str):
             content = content.encode()
@@ -98,6 +108,23 @@ class TestM365TenantImport(TransactionCase):
             wizard.action_import()
         self.assertFalse(self.env['m365.tenant'].search([('tenant_id', '=', GUID_1)]))
 
+    def test_invalid_values(self):
+        wizard = self._wizard(
+            'Tenant Name;Primary Domain;Directory (Tenant) ID;Application (Client) ID;'
+            'Authority URL;Low Availability Threshold (Units);Company\n'
+            'Contoso;contoso.com;%s;%s;http://login.microsoftonline.com;2.5;Unknown Co\n'
+            'Fabrikam;fabrikam.com;%s;%s;;abc;\n' % (GUID_1, GUID_2, GUID_3, GUID_2)
+            + 'Woodgrove;woodgrove.com;%s;%s;;-1;\n' % (GUID_4, GUID_2))
+        wizard.action_validate()
+        self.assertEqual(wizard.line_ids.mapped('message'), [
+            'Authority URL: "http://login.microsoftonline.com" must start with https://.\n'
+            'Low Availability Threshold (Units): 2.5 must be a whole number of 0 or more.\n'
+            'Company: Company "Unknown Co" not found in your allowed companies.',
+            'Low Availability Threshold (Units): "abc" is not a number.',
+            'Low Availability Threshold (Units): -1 must be a whole number of 0 or more.',
+        ])
+        self.assertEqual(wizard.line_ids.mapped('directory_id'), [GUID_1, GUID_3, GUID_4])
+
     def test_bad_header(self):
         wizard = self._wizard('Tenant Name,Primary Domain,Tenant\nA,a.com,x\n')
         with self.assertRaisesRegex(UserError, 'Unknown column'):
@@ -107,6 +134,12 @@ class TestM365TenantImport(TransactionCase):
             wizard.action_validate()
         with self.assertRaisesRegex(UserError, 'Unsupported file type'):
             self._wizard('x', filename='tenants.txt').action_validate()
+        # The label and the technical name are the same column
+        wizard = self._wizard(HEADER.replace('Client Secret', 'tenant_id') + 'A,a.com\n')
+        with self.assertRaisesRegex(UserError, 'The column "tenant_id" appears more than once'):
+            wizard.action_validate()
+        with self.assertRaisesRegex(UserError, 'no tenant rows below the header'):
+            self._wizard(HEADER).action_validate()
 
     def test_import_xlsx_from_template(self):
         wizard = self.env['m365.tenant.import.wizard'].create({})
