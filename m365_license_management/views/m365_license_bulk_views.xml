@@ -6,48 +6,73 @@
         <field name="arch" type="xml">
             <form string="Bulk Assign / Remove Licenses">
                 <field name="state" invisible="1"/>
-                <div class="alert alert-info" role="alert" invisible="state == 'done'">
-                    A license request is created for every selected user and license. Requests
-                    of administrators are executed at once when the tenant auto-approves them,
-                    the others wait for approval. Users who already have (or do not have) a
-                    license are skipped.
+                <div class="alert alert-info" role="alert" invisible="state == 'done' or line_count">
+                    Choose the operation, upload an <b>Excel (.xlsx)</b> or <b>CSV</b> file with
+                    one <i>Tenant</i>, <i>User</i> and <i>License</i> per row and press
+                    <b>Verify</b>. Use <b>Download Template</b> for the columns and the list of
+                    available licenses: it contains 3 example rows for the selected operation,
+                    taken from your users and licenses when possible. Replace them with your
+                    own rows before verifying. Tenants are matched by name, primary domain or directory
+                    ID, users by user principal name, email or object ID and licenses by SKU,
+                    product name or SKU ID. Licenses are assigned or removed only when every row
+                    is valid. Requests of administrators are executed at once when the tenant
+                    auto-approves them, the others wait for approval.
+                </div>
+                <div class="alert alert-success" role="alert"
+                     invisible="state == 'done' or not line_count or error_count">
+                    All <field name="line_count" class="d-inline"/> rows are valid. Check the
+                    matched users and licenses below, then press
+                    <b invisible="request_type != 'assign'">Assign Licenses</b>
+                    <b invisible="request_type != 'remove'">Remove Licenses</b>.
+                </div>
+                <div class="alert alert-danger" role="alert"
+                     invisible="state == 'done' or not error_count">
+                    <field name="error_count" class="d-inline"/> row(s) contain errors. Correct
+                    the file, upload it again and press <b>Verify</b>. No license is assigned or
+                    removed until every row is valid.
                 </div>
                 <div class="alert alert-success" role="alert" invisible="state != 'done'">
                     Completed: <field name="done_count" class="d-inline"/> ·
                     Waiting approval: <field name="submitted_count" class="d-inline"/> ·
-                    Skipped: <field name="skipped_count" class="d-inline"/> ·
                     Failed: <field name="failed_count" class="d-inline"/>
                 </div>
                 <group invisible="state == 'done'">
-                    <field name="tenant_id" options="{'no_create': True, 'no_open': True}"/>
                     <field name="request_type" widget="radio" options="{'horizontal': true}"/>
-                    <field name="user_ids" widget="many2many_tags"
-                           options="{'no_create': True}"/>
-                    <field name="sku_ids" widget="many2many_tags"
-                           options="{'no_create': True}"/>
-                    <field name="reason" placeholder="Optional"/>
+                    <field name="file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
                 </group>
-                <field name="line_ids" readonly="1" invisible="state != 'done'">
-                    <list decoration-danger="status == 'failed'"
-                          decoration-muted="status == 'skipped'">
+                <field name="line_ids" readonly="1" invisible="not line_count">
+                    <list decoration-danger="status in ('error', 'failed')">
+                        <field name="sn"/>
+                        <field name="tenant_ref"/>
+                        <field name="user_ref"/>
+                        <field name="license_ref"/>
                         <field name="user_id"/>
                         <field name="sku_id"/>
+                        <field name="reason" optional="hide"/>
                         <field name="status" widget="badge"
-                               decoration-success="status == 'done'"
+                               decoration-success="status in ('valid', 'done')"
                                decoration-info="status == 'submitted'"
-                               decoration-danger="status == 'failed'"/>
-                        <field name="request_id" optional="show"/>
+                               decoration-danger="status in ('error', 'failed')"/>
+                        <field name="request_id" optional="show"
+                               column_invisible="parent.state != 'done'"/>
                         <field name="message"/>
                     </list>
                 </field>
                 <footer>
+                    <button name="action_verify" type="object" string="Verify"
+                            class="btn-primary" data-hotkey="v"
+                            invisible="state == 'done' or (line_count and not error_count)"/>
                     <button name="action_execute" type="object" string="Assign Licenses"
                             class="btn-primary" data-hotkey="q"
-                            invisible="state == 'done' or request_type != 'assign'"/>
+                            invisible="state == 'done' or not line_count or error_count or request_type != 'assign'"/>
                     <button name="action_execute" type="object" string="Remove Licenses"
                             class="btn-danger" data-hotkey="q"
-                            invisible="state == 'done' or request_type != 'remove'"
-                            confirm="Remove the selected licenses from all the selected users?"/>
+                            invisible="state == 'done' or not line_count or error_count or request_type != 'remove'"
+                            confirm="Remove the licenses of all the rows of the file?"/>
+                    <button name="action_download_template" type="object"
+                            string="Download Template" class="btn-secondary"
+                            invisible="state == 'done'"/>
                     <button string="Cancel" special="cancel" data-hotkey="x"
                             invisible="state == 'done'"/>
                     <button string="Close" special="cancel" class="btn-primary" data-hotkey="x"
@@ -62,5 +87,6 @@
         <field name="res_model">m365.license.bulk.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
+        <field name="context">{'dialog_size': 'extra-large'}</field>
     </record>
 </odoo>
