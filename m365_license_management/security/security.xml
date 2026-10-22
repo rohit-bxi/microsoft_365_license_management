@@ -8,7 +8,7 @@
         <field name="placeholder">No</field>
     </record>
 
-    <!-- Users: dashboard, inventory, own requests (read mostly) -->
+    <!-- Users: every menu except Configuration (dashboard, inventory, own requests, audit logs) -->
     <record id="group_m365_user" model="res.groups">
         <field name="name">User</field>
         <field name="sequence">10</field>
@@ -16,7 +16,7 @@
         <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
     </record>
 
-    <!-- Administrators: tenant configuration, approvals, audit logs -->
+    <!-- Administrators: tenant configuration, approvals -->
     <record id="group_m365_admin" model="res.groups">
         <field name="name">Administrator</field>
         <field name="sequence">20</field>

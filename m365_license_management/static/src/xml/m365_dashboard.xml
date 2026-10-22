@@ -41,7 +41,7 @@
                     <a t-on-click="() => this.open('action_m365_sku')"><i class="fa fa-cubes"/><span>License Inventory</span></a>
                     <a t-on-click="() => this.open('action_m365_license_user')"><i class="fa fa-users"/><span>User Management</span></a>
                     <a t-on-click="() => this.open('action_m365_license_request')"><i class="fa fa-exchange"/><span>License Operations</span></a>
-                    <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_audit_log')"><i class="fa fa-list-alt"/><span>Audit Logs</span></a>
+                    <a t-on-click="() => this.open('action_m365_audit_log')"><i class="fa fa-list-alt"/><span>Audit Logs</span></a>
                     <a t-if="state.data and state.data.is_admin" t-on-click="() => this.open('action_m365_tenant')"><i class="fa fa-cog"/><span>Settings</span></a>
                 </nav>
 

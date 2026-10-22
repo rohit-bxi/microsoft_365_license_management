@@ -14,7 +14,7 @@
               action="action_m365_license_request" sequence="4"/>
     <menuitem id="menu_m365_audit" name="Audit Logs" parent="menu_m365_root"
               action="action_m365_audit_log" sequence="5"
-              groups="m365_license_management.group_m365_admin"/> 
+              groups="m365_license_management.group_m365_user"/>
 
     <menuitem id="menu_m365_config" name="Configuration" parent="menu_m365_root" sequence="10"
               groups="m365_license_management.group_m365_admin"/>
