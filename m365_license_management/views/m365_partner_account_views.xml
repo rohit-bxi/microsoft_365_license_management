@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Partner Center account -->
+    <record id="view_m365_partner_account_list" model="ir.ui.view">
+        <field name="name">m365.partner.account.list</field>
+        <field name="model">m365.partner.account</field>
+        <field name="arch" type="xml">
+            <list string="Partner Center Accounts" decoration-danger="state == 'error'">
+                <field name="name"/>
+                <field name="partner_name"/>
+                <field name="partner_tenant_id" optional="hide"/>
+                <field name="tenant_count" string="Tenants"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'connected'"
+                       decoration-danger="state == 'error'"
+                       decoration-info="state == 'draft'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_partner_account_form" model="ir.ui.view">
+        <field name="name">m365.partner.account.form</field>
+        <field name="model">m365.partner.account</field>
+        <field name="arch" type="xml">
+            <form string="Partner Center Account">
+                <header>
+                    <button name="action_test_connection" type="object" string="Test Connection"
+                            class="btn-primary"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_tenants" type="object" class="oe_stat_button"
+                                icon="fa-building">
+                            <field name="tenant_count" widget="statinfo" string="Tenants"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. BXI Technologies CSP"/></h1>
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="state != 'error'">
+                        <strong>Last error:</strong>
+                        <field name="last_error" nolabel="1" class="d-inline"/>
+                    </div>
+                    <group>
+                        <group string="App Registration (App-only)">
+                            <field name="partner_tenant_id"/>
+                            <field name="client_id"/>
+                            <field name="client_secret" password="True"/>
+                            <field name="partner_name" invisible="not partner_name"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group string="New Customers">
+                            <field name="default_culture"/>
+                            <field name="default_language"/>
+                            <field name="enable_gdap"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Endpoints" name="endpoints">
+                            <group>
+                                <field name="authority_url"/>
+                                <field name="api_url"/>
+                                <field name="api_scope"/>
+                            </group>
+                        </page>
+                        <page string="Setup Guide" name="guide">
+                            <div class="o_m365_guide">
+                                <h4>1. Requirements</h4>
+                                <p>A Microsoft <b>Cloud Solution Provider (CSP)</b> partner account
+                                   (direct bill partner or indirect provider). New tenants are
+                                   created as customers of this partner.</p>
+                                <h4>2. Register the application</h4>
+                                <p>Partner Center &#8594; Account settings &#8594;
+                                   <b>App management</b> &#8594; <i>Add new web app</i>, or register a
+                                   web application in Microsoft Entra ID and add it there. Copy the
+                                   <b>Account ID</b> (partner directory ID), the
+                                   <b>App ID</b> and create a <b>key</b> (client secret).
+                                   App-only access is enough to check domains and addresses and
+                                   to create customers; it needs no user sign-in nor MFA.</p>
+                                <h4>3. Test the connection</h4>
+                                <p>Save and press <b>Test Connection</b>: Odoo reads your legal
+                                   business profile. Then add tenants of type <b>New</b> in
+                                   <i>Tenants</i>.</p>
+                                <p class="text-muted">Use an integration sandbox account first:
+                                   customers created in production are real tenants and cannot
+                                   be deleted from Odoo.</p>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_partner_account" model="ir.actions.act_window">
+        <field name="name">Partner Center Accounts</field>
+        <field name="res_model">m365.partner.account</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Connect your Partner Center account</p>
+            <p>New Microsoft 365 tenants are created as customers of your Cloud Solution
+               Provider (CSP) partner account.</p>
+        </field>
+    </record>
+</odoo>

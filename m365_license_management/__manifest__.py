@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment and audit via Microsoft Graph',
@@ -12,8 +12,8 @@ Centralised license inventory dashboard and administrative portal for one or
 more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 
 * Tenant masters (Entra app registration, OAuth 2.0 client credentials)
-* Creation of new customer tenants through Microsoft Partner Center (CSP), one by
-  one or in bulk from a CSV / Excel file
+* Tenants of type New: created through Microsoft Partner Center (CSP), one by one
+  or in bulk from a CSV / Excel file, then connected like existing tenants
 * Product catalogue master (SKU part number -> friendly product name)
 * License inventory synchronisation (GET /subscribedSkus) with history snapshots
 * User directory synchronisation (GET /users) with current licenses
@@ -37,7 +37,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'data/ir_cron_data.xml',
         'views/m365_tenant_views.xml',
         'views/m365_tenant_import_views.xml',
-        'views/m365_tenant_provision_views.xml',
+        'views/m365_partner_account_views.xml',
         'views/m365_product_views.xml',
         'views/m365_sku_views.xml',
         'views/m365_license_user_views.xml',

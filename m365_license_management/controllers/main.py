@@ -101,7 +101,8 @@ def _dt(value):
 
 def _tenant(t):
     return {
-        'id': t.id, 'name': t.name, 'domain': t.domain, 'state': t.state,
+        'id': t.id, 'name': t.name, 'domain': t.domain, 'tenant_type': t.tenant_type,
+        'state': t.state,
         'allow_license_operations': t.allow_license_operations,
         'sync_enabled': t.sync_enabled,
         'last_sync': _dt(t.last_sync_date), 'last_user_sync': _dt(t.last_user_sync_date),
@@ -174,7 +175,8 @@ class M365ApiController(http.Controller):
     @http.route(API + '/tenants', type='http', auth='bearer', methods=['GET'], csrf=False)
     @api_endpoint
     def tenants(self, **kw):
-        return [_tenant(t) for t in request.env['m365.tenant'].search([])]
+        Tenant = request.env['m365.tenant']
+        return [_tenant(t) for t in Tenant.search(Tenant._live_domain())]
 
     @http.route(API + '/tenants/<int:tenant_id>', type='http', auth='bearer',
                 methods=['GET'], csrf=False)

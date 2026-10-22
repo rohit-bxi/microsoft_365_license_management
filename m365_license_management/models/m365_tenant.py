@@ -29,10 +29,18 @@ class M365Tenant(models.Model):
     # Master data
     # ------------------------------------------------------------------
     name = fields.Char(string="Tenant Name", required=True, tracking=True)
+    tenant_type = fields.Selection([
+        ('existing', 'Existing'),
+        ('new', 'New'),
+    ], string="Type", default='existing', required=True, tracking=True,
+        help="Existing: connect a tenant that already exists in Microsoft 365.\n"
+             "New: create the tenant through Microsoft Partner Center first, then connect "
+             "it.")
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True, tracking=True)
     domain = fields.Char(string="Primary Domain", required=True, tracking=True,
-                         help="e.g. bxitech.com")
+                         help="e.g. bxitech.com. For a new tenant, its initial domain, e.g. "
+                              "contoso.onmicrosoft.com (\"contoso\" is completed).")
     color = fields.Integer(string="Color Index")
     company_id = fields.Many2one('res.company', string="Company",
                                  default=lambda self: self.env.company)
@@ -40,9 +48,9 @@ class M365Tenant(models.Model):
     # ------------------------------------------------------------------
     # Entra ID app registration / OAuth 2.0
     # ------------------------------------------------------------------
-    tenant_id = fields.Char(string="Directory (Tenant) ID", required=True, copy=False,
-                            tracking=True)
-    client_id = fields.Char(string="Application (Client) ID", required=True, copy=False)
+    # Required for existing tenants; a new tenant gets its ID from Microsoft when created
+    tenant_id = fields.Char(string="Directory (Tenant) ID", copy=False, tracking=True)
+    client_id = fields.Char(string="Application (Client) ID", copy=False)
     client_secret = fields.Char(
         string="Client Secret", copy=False,
         groups='m365_license_management.group_m365_admin',
@@ -125,6 +133,18 @@ class M365Tenant(models.Model):
             if not 0 <= rec.low_availability_percent <= 100:
                 raise UserError(_("The low availability threshold must be between 0 and 100."))
 
+    @api.constrains('tenant_type', 'tenant_id', 'client_id')
+    def _check_connection_ids(self):
+        for rec in self.filtered(lambda t: t.tenant_type == 'existing'):
+            if not (rec.tenant_id and rec.client_id):
+                raise UserError(_("Directory (Tenant) ID and Application (Client) ID are "
+                                  "required for the existing tenant %s.", rec.name))
+
+    @api.model
+    def _live_domain(self):
+        """Tenants that exist in Microsoft 365: existing ones and created new ones."""
+        return ['|', ('tenant_type', '=', 'existing'), ('provision_state', '=', 'done')]
+
     def write(self, vals):
         # Changing credentials invalidates the cached token
         if {'tenant_id', 'client_id', 'client_secret', 'authority_url', 'graph_scope'} & set(vals):
@@ -134,7 +154,7 @@ class M365Tenant(models.Model):
     # ------------------------------------------------------------------
     # Audit helper
     # ------------------------------------------------------------------
-    def _log(self, action, status, message, request=None):
+    def _log(self, action, status, message, request=None, user=None):
         self.ensure_one()
         return self.env['m365.audit.log'].sudo().create({
             'tenant_id': self.id,
@@ -142,7 +162,7 @@ class M365Tenant(models.Model):
             'status': status,
             'message': message,
             'request_id': request.id if request else False,
-            'user_id': self.env.user.id,
+            'user_id': (user or self.env.user).id,
         })
 
     # ------------------------------------------------------------------
@@ -341,6 +361,8 @@ class M365Tenant(models.Model):
         :return: (ok: bool, messages: list[str])
         """
         self.ensure_one()
+        if not self.filtered_domain(self._live_domain()):
+            return False, [_("%s: create the tenant in Microsoft 365 first.", self.name)]
         if not self._try_lock():
             return False, [_("%s: a synchronisation is already running.", self.name)]
         messages, ok = [], True
@@ -471,7 +493,9 @@ class M365Tenant(models.Model):
     def action_test_connection(self):
         messages, ok = [], True
         connected, partial, failed = [], [], []
-        for tenant in self:
+        # New tenants are connected once created in Microsoft 365
+        pending = self - self.filtered_domain(self._live_domain())
+        for tenant in self - pending:
             try:
                 org = tenant._graph_request('GET', '/organization',
                                             params={'$select': 'id,displayName'}, paginate=True)
@@ -491,11 +515,15 @@ class M365Tenant(models.Model):
                 tenant.write({'state': 'error', 'last_error': str(exc)})
                 tenant._log('test_connection', 'failed', str(exc))
                 messages.append("%s: %s" % (tenant.name, exc))
+        for tenant in pending:
+            ok = False
+            messages.append(_("%s: create the tenant in Microsoft 365 first.", tenant.name))
         if len(self) > 1:
             # Bulk test from the list view: one line per result, details in the audit log
             groups = [(_("Connected"), connected),
                       (_("Connected with missing permissions"), partial),
-                      (_("Failed"), failed)]
+                      (_("Failed"), failed),
+                      (_("Not created in Microsoft 365 yet"), pending.mapped('name'))]
             messages = ["%s: %s." % (label, ", ".join(names)) for label, names in groups
                         if names]
             if not ok:
@@ -539,7 +567,7 @@ class M365Tenant(models.Model):
         """Called by the dashboard "Refresh" button (administrators only)."""
         if not self.env.user.has_group('m365_license_management.group_m365_admin'):
             raise UserError(_("Only Microsoft 365 administrators can refresh the inventory."))
-        domain = [('state', 'in', ('connected', 'error', 'draft'))]
+        domain = [('state', 'in', ('connected', 'error', 'draft'))] + self._live_domain()
         if tenant_ids:
             domain.append(('id', 'in', tenant_ids))
         ok, messages = True, []

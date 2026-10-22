@@ -7,6 +7,8 @@ import openpyxl
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
+from ..models.m365_tenant_import import NEW_COLUMNS, NEW_HEADERS
+
 GUID_1 = '11111111-2222-3333-4444-555555555555'
 GUID_2 = '66666666-7777-8888-9999-000000000000'
 GUID_3 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -14,6 +16,9 @@ GUID_4 = '12345678-1234-1234-1234-123456789012'
 GUID_5 = 'abcdefab-cdef-abcd-efab-cdefabcdefab'
 HEADER = ('Tenant Name,Primary Domain,Directory (Tenant) ID,Application (Client) ID,'
           'Client Secret,Enable License Operations,Low Availability Threshold (%)\n')
+# Customers.csv of the provisioning script (new tenants)
+NEW_HEADER = ('CompanyName,Domain,FirstName,LastName,Email,PhoneNumber,AddressLine1,'
+              'AddressLine2,City,State,PostalCode,Country\n')
 
 
 @tagged('post_install', '-at_install')
@@ -28,13 +33,21 @@ class TestM365TenantImport(TransactionCase):
             tenant.write({'name': 'Tenant %s' % tenant.id,
                           'domain': 'tenant-%s.example' % tenant.id,
                           'tenant_id': 'tenant-%s' % tenant.id})
+        cls.account = cls.env['m365.partner.account'].create({
+            'name': 'BXI CSP', 'partner_tenant_id': 'partner.onmicrosoft.com',
+            'client_id': 'pc-app', 'default_culture': 'en-IN',
+        })
 
-    def _wizard(self, content, filename='tenants.csv'):
+    def _wizard(self, content, filename='tenants.csv', **vals):
         if isinstance(content, str):
             content = content.encode()
-        return self.env['m365.tenant.import.wizard'].create({
+        return self.env['m365.tenant.import.wizard'].create(dict(vals, **{
             'file': base64.b64encode(content), 'filename': filename,
-        })
+        }))
+
+    def _new_wizard(self, content, filename='Customers.csv'):
+        return self._wizard(content, filename, tenant_type='new',
+                            partner_account_id=self.account.id)
 
     def test_import_csv(self):
         wizard = self._wizard(HEADER
@@ -187,3 +200,94 @@ class TestM365TenantImport(TransactionCase):
         self.assertEqual(tenant.authority_url, 'https://login.microsoftonline.com')
         self.assertEqual(tenant.low_availability_units, 5)
         self.assertEqual(tenant.company_id, self.env.company)
+
+    # ------------------------------------------------------------------
+    # New tenants (Customers.csv)
+    # ------------------------------------------------------------------
+    def test_import_new_tenants(self):
+        wizard = self._new_wizard(
+            NEW_HEADER
+            + 'Fabrikam Inc,FabrikamInc,Lee,Gu,lee.gu@fabrikam.com,,1 Main St,,Redmond,WA,'
+              '98052,US\n'
+            + 'Northwind,northwind.onmicrosoft.com,Megan,Bowen,megan@northwind.com,,'
+              '2 Pine St,Suite 5,Seattle,WA,98101,United States\n')
+        wizard.action_validate()
+        self.assertEqual((wizard.line_count, wizard.error_count), (2, 0))
+        self.assertEqual(wizard.line_ids.mapped('domain'),
+                         ['FabrikamInc', 'northwind.onmicrosoft.com'])
+        action = wizard.action_import()
+        self.assertIn('Check, then Create in Microsoft 365', action['params']['message'])
+        tenants = self.env['m365.tenant'].search(action['params']['next']['domain'],
+                                                 order='id')
+        self.assertEqual(tenants.mapped('name'), ['Fabrikam Inc', 'Northwind'])
+        self.assertEqual(tenants.mapped('domain'),
+                         ['fabrikaminc.onmicrosoft.com', 'northwind.onmicrosoft.com'])
+        self.assertEqual(set(tenants.mapped('tenant_type')), {'new'})
+        self.assertEqual(set(tenants.mapped('provision_state')), {'draft'})
+        self.assertEqual(set(tenants.mapped('culture')), {'en-IN'})
+        self.assertEqual(tenants.country_id, self.env.ref('base.us'))
+        self.assertEqual(tenants[1].address_line2, 'Suite 5')
+        self.assertEqual(tenants.partner_account_id, self.account)
+        self.assertFalse(any(tenants.mapped('tenant_id')))
+
+    def test_import_new_errors(self):
+        self.env['m365.tenant'].create({'tenant_type': 'new', 'name': 'Adatum',
+                                        'domain': 'adatum', 'partner_account_id': self.account.id})
+        wizard = self._new_wizard(
+            NEW_HEADER
+            + 'Adatum Again,adatum,A,B,a@adatum.com,,1 St,,Pune,MH,411001,US\n'
+            + ',bad domain!,A,B,not-an-email,,1 St,,City,,,Narnia\n'
+            + 'India Co,indiaco,A,B,a@india.co,,1 St,,Pune,MH,411001,IN\n'
+            + 'Twice,twice,A,B,a@twice.co,,1 St,,Austin,TX,73301,US\n'
+            + 'Twice Again,TWICE,A,B,a@twice.co,,1 St,,Austin,TX,73301,US\n')
+        wizard.action_validate()
+        self.assertEqual((wizard.line_count, wizard.error_count), (5, 4))
+        messages = wizard.line_ids.mapped('message')
+        self.assertEqual(messages[0], 'Primary Domain "adatum.onmicrosoft.com" already '
+                                      'exists in Odoo.')
+        for text in ('Country: Country "Narnia" not found', 'Tenant Name is required.',
+                     'Postal Code is required.', 'Domain "bad domain!.onmicrosoft.com" is not '
+                     'valid', '"not-an-email" is not a valid email address.'):
+            self.assertIn(text, messages[1])
+        self.assertNotIn('Country is required.', messages[1])
+        self.assertEqual(messages[1].count('Tenant Name is required.'), 1)
+        self.assertEqual(messages[2], 'Microsoft requires the organization registration '
+                                      'number for India.')
+        self.assertFalse(messages[3])
+        self.assertEqual(messages[4], 'Duplicate Primary Domain, same as SN. 4.')
+        with self.assertRaisesRegex(UserError, '(?s)SN. 1: .*SN. 5: '):
+            wizard.action_import()
+        # The Partner Center account gives the defaults of the new tenants
+        wizard.partner_account_id = False
+        with self.assertRaisesRegex(UserError, 'Select the Partner Center account'):
+            wizard.action_validate()
+
+    def test_import_new_headers(self):
+        for header, error in (('CompanyName,Domain,Email\n', 'Missing required column'),
+                              (NEW_HEADER.replace('State', 'Region'), 'Unknown column'),
+                              (NEW_HEADER.replace('Email', 'Email,Contact Email'),
+                               'appears more than once')):
+            with self.assertRaisesRegex(UserError, error):
+                self._new_wizard(header + 'x\n').action_validate()
+        with self.assertRaisesRegex(UserError, 'no tenant rows'):
+            self._new_wizard(NEW_HEADER).action_validate()
+        # The field labels are accepted as well
+        wizard = self._new_wizard('Tenant Name,Primary Domain,Contact First Name,'
+                                  'Contact Last Name,Contact Email,Address Line 1,City,'
+                                  'Postal Code,Country\n'
+                                  'Litware,litware,Lee,Gu,lee@litware.com,1 St,Austin,73301,US\n')
+        wizard.action_validate()
+        self.assertEqual((wizard.line_count, wizard.error_count), (1, 0))
+
+    def test_import_new_template(self):
+        wizard = self.env['m365.tenant.import.wizard'].create(
+            {'tenant_type': 'new', 'partner_account_id': self.account.id})
+        action = wizard.action_download_template()
+        self.assertIn('/template_file/m365_customers_template.xlsx', action['url'])
+        sheet = openpyxl.load_workbook(io.BytesIO(base64.b64decode(wizard.template_file))).active
+        self.assertEqual([cell.value for cell in sheet[1]],
+                         [NEW_HEADERS[fname] for fname, _kind, _required in NEW_COLUMNS])
+        # The example row is valid
+        wizard.write({'file': wizard.template_file, 'filename': 'template.xlsx'})
+        wizard.action_validate()
+        self.assertEqual((wizard.line_count, wizard.error_count), (1, 0))

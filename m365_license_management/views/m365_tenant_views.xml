@@ -8,6 +8,7 @@
                 <field name="sequence" widget="handle"/>
                 <field name="name"/>
                 <field name="domain"/>
+                <field name="tenant_type" optional="show"/>
                 <field name="tenant_id" optional="hide"/>
                 <field name="total_licenses"/>
                 <field name="assigned_licenses"/>
@@ -18,7 +19,12 @@
                 <field name="state" widget="badge"
                        decoration-success="state == 'connected'"
                        decoration-danger="state == 'error'"
-                       decoration-info="state == 'draft'"/>
+                       decoration-info="state == 'draft'"
+                       invisible="tenant_type == 'new' and provision_state != 'done'"/>
+                <field name="provision_state" widget="badge" optional="show"
+                       decoration-success="provision_state in ('ready', 'done')"
+                       decoration-info="provision_state in ('draft', 'queued')"
+                       decoration-danger="provision_state == 'failed'"/>
                 <field name="active" column_invisible="True"/>
             </list>
         </field>
@@ -30,15 +36,36 @@
         <field name="arch" type="xml">
             <form string="Microsoft 365 Tenant">
                 <header>
+                    <button name="action_check" type="object" string="Check" class="btn-primary"
+                            invisible="tenant_type != 'new' or provision_state != 'draft'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_check" type="object" string="Check Again"
+                            invisible="tenant_type != 'new' or provision_state != 'ready'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_create" type="object" string="Create in Microsoft 365"
+                            class="btn-primary"
+                            invisible="tenant_type != 'new' or provision_state != 'ready'"
+                            confirm="Create this tenant in Microsoft 365? A real tenant is created and it cannot be deleted from Odoo."
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_create" type="object" string="Retry" class="btn-primary"
+                            invisible="tenant_type != 'new' or provision_state != 'failed'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_reset_creation" type="object" string="Reset to Draft"
+                            invisible="tenant_type != 'new' or provision_state != 'failed'"
+                            groups="m365_license_management.group_m365_admin"/>
                     <button name="action_test_connection" type="object" string="Test Connection"
-                            class="btn-primary" groups="m365_license_management.group_m365_admin"/>
+                            class="btn-primary" invisible="tenant_type == 'new' and provision_state != 'done'" groups="m365_license_management.group_m365_admin"/>
                     <button name="action_sync_inventory" type="object" string="Synchronise Now"
                             invisible="state == 'draft'"
                             groups="m365_license_management.group_m365_admin"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"/>
+                    <field name="provision_state" widget="statusbar"
+                           statusbar_visible="draft,ready,queued,done"
+                           invisible="tenant_type != 'new' or provision_state == 'done'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"
+                           invisible="tenant_type == 'new' and provision_state != 'done'"/>
                 </header>
                 <sheet>
-                    <div class="oe_button_box" name="button_box">
+                    <div class="oe_button_box" name="button_box" invisible="tenant_type == 'new' and provision_state != 'done'">
                         <button name="action_view_skus" type="object" class="oe_stat_button"
                                 icon="fa-cubes">
                             <field name="sku_count" widget="statinfo" string="Products"/>
@@ -56,18 +83,43 @@
                             invisible="active"/>
                     <div class="oe_title">
                         <label for="name"/>
-                        <h1><field name="name" placeholder="e.g. BXI Technologies"/></h1>
+                        <h1><field name="name" placeholder="e.g. BXI Technologies"
+                                   readonly="provision_state == 'queued'"/></h1>
                     </div>
                     <div class="alert alert-danger" role="alert" invisible="state != 'error'">
                         <strong>Last error:</strong> <field name="last_error" nolabel="1" class="d-inline"/>
                     </div>
+                    <div class="alert alert-danger" role="alert"
+                         invisible="not provision_error or provision_state not in ('draft', 'failed')">
+                        <field name="provision_error" nolabel="1" class="d-inline"/>
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="provision_state != 'failed' or not pc_request_id">
+                        Partner Center gave no answer, so the tenant may have been created.
+                        <b>Retry</b> sends the same request ID: Microsoft then returns the
+                        tenant it created instead of creating a second one.
+                    </div>
+                    <div class="alert alert-info" role="alert" invisible="provision_state != 'queued'">
+                        The tenant is being created in Microsoft 365. Reload the page in a
+                        minute.
+                    </div>
+                    <div class="alert alert-info" role="alert"
+                         invisible="provision_state != 'done' or state != 'draft'">
+                        The tenant is created in Microsoft 365. To manage its licenses, enter
+                        the client ID and secret of an app registration consented in the new
+                        tenant (<i>Entra App Registration</i> tab) and press
+                        <b>Test Connection</b>.
+                    </div>
+                    <field name="pc_request_id" invisible="1"/>
                     <group>
                         <group string="Tenant">
-                            <field name="domain"/>
+                            <field name="tenant_type" widget="radio" options="{'horizontal': true}"
+                                   readonly="state != 'draft' or provision_state in ('queued', 'done')"/>
+                            <field name="domain" readonly="provision_state == 'queued'"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" invisible="1"/>
                         </group>
-                        <group string="Inventory">
+                        <group string="Inventory" invisible="tenant_type == 'new' and provision_state != 'done'">
                             <field name="total_licenses"/>
                             <field name="assigned_licenses"/>
                             <field name="available_licenses"/>
@@ -76,11 +128,54 @@
                         </group>
                     </group>
                     <notebook>
-                        <page string="Entra App Registration" name="connection">
+                        <page string="Tenant Creation" name="creation" invisible="tenant_type != 'new'"
+                              groups="m365_license_management.group_m365_admin">
+                            <group>
+                                <group string="Partner Center">
+                                    <field name="partner_account_id" required="tenant_type == 'new'"
+                                           readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="organization_registration_number" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="enable_gdap" readonly="provision_state in ('queued', 'done')"/>
+                                </group>
+                                <group string="Contact">
+                                    <field name="contact_first_name" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="contact_last_name" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="contact_email" widget="email" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="contact_phone" widget="phone" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="culture" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="language" readonly="provision_state in ('queued', 'done')"/>
+                                </group>
+                                <group string="Registered Address">
+                                    <field name="address_line1" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="address_line2" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="city" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="address_state" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="postal_code" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="country_id" options="{'no_create': True}"
+                                           readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="address_status" invisible="not address_status"/>
+                                    <field name="address_confirmed" readonly="provision_state in ('queued', 'done')"/>
+                                </group>
+                                <group string="Result" invisible="provision_state != 'done'">
+                                    <field name="customer_id"/>
+                                    <field name="created_date"/>
+                                    <field name="queued_by"/>
+                                    <field name="admin_username" widget="CopyClipboardChar"/>
+                                    <field name="admin_password" widget="CopyClipboardChar"
+                                           invisible="not admin_password"/>
+                                    <button name="action_clear_password" type="object"
+                                            string="Remove Password from Odoo" class="btn-link"
+                                            colspan="2" invisible="not admin_password"
+                                            confirm="Remove the initial admin password from Odoo? Hand it over to the customer first."/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Entra App Registration" name="connection" invisible="tenant_type == 'new' and provision_state != 'done'">
                             <group>
                                 <group string="OAuth 2.0 (Client Credentials)">
-                                    <field name="tenant_id"/>
-                                    <field name="client_id"/>
+                                    <field name="tenant_id" readonly="tenant_type == 'new'"
+                                           required="tenant_type == 'existing'"/>
+                                    <field name="client_id" required="tenant_type == 'existing'"/>
                                     <field name="client_secret" password="True"
                                            groups="m365_license_management.group_m365_admin"/>
                                 </group>
@@ -91,7 +186,8 @@
                                 </group>
                             </group>
                         </page>
-                        <page string="Operations &amp; Automation" name="operations">
+                        <page string="Operations &amp; Automation" name="operations"
+                              invisible="tenant_type == 'new' and provision_state != 'done'">
                             <group>
                                 <group string="License Operations">
                                     <field name="allow_license_operations"/>
@@ -108,7 +204,7 @@
                                 </group>
                             </group>
                         </page>
-                        <page string="Live Sync" name="live_sync"
+                        <page string="Live Sync" name="live_sync" invisible="tenant_type == 'new' and provision_state != 'done'"
                               groups="m365_license_management.group_m365_admin">
                             <group>
                                 <group string="Delta Synchronisation">
@@ -146,7 +242,7 @@
                                 refreshed on each notification and every 30 minutes.
                             </div>
                         </page>
-                        <page string="Products" name="products">
+                        <page string="Products" name="products" invisible="tenant_type == 'new' and provision_state != 'done'">
                             <field name="sku_ids" readonly="1">
                                 <list>
                                     <field name="name"/>
@@ -161,6 +257,14 @@
                         </page>
                         <page string="Setup Guide" name="guide">
                             <div class="o_m365_guide">
+                                <h4>New tenants</h4>
+                                <p>Choose the type <b>New</b> to create the tenant through
+                                   Microsoft Partner Center (<i>Partner Center Account</i> menu):
+                                   enter the initial domain (e.g. contoso.onmicrosoft.com), a
+                                   contact and the registered address, press <b>Check</b>, then
+                                   <b>Create in Microsoft 365</b>. Once it is created, its
+                                   directory ID is filled in: follow the steps below in the new
+                                   tenant to connect it.</p>
                                 <h4>1. Register an application in Microsoft Entra ID</h4>
                                 <p>Entra admin center &#8594; App registrations &#8594; New registration.
                                    Copy the <b>Directory (tenant) ID</b> and <b>Application (client) ID</b>
@@ -200,8 +304,14 @@
                 <filter name="filter_connected" string="Connected" domain="[('state', '=', 'connected')]"/>
                 <filter name="filter_error" string="Connection Error" domain="[('state', '=', 'error')]"/>
                 <separator/>
+                <filter name="filter_existing" string="Existing" domain="[('tenant_type', '=', 'existing')]"/>
+                <filter name="filter_new" string="New" domain="[('tenant_type', '=', 'new')]"/>
+                <filter name="filter_to_create" string="To Create"
+                        domain="[('tenant_type', '=', 'new'), ('provision_state', '!=', 'done')]"/>
+                <separator/>
                 <filter name="filter_archived" string="Archived" domain="[('active', '=', False)]"/>
                 <group>
+                    <filter name="group_type" string="Type" context="{'group_by': 'tenant_type'}"/>
                     <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
                 </group>
             </search>
@@ -218,14 +328,36 @@
         <field name="code">action = records.action_test_connection()</field>
     </record>
 
+    <record id="action_m365_tenant_check" model="ir.actions.server">
+        <field name="name">Check (New Tenants)</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="binding_model_id" ref="model_m365_tenant"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_check()</field>
+    </record>
+
+    <record id="action_m365_tenant_create" model="ir.actions.server">
+        <field name="name">Create in Microsoft 365</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="binding_model_id" ref="model_m365_tenant"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_create()</field>
+    </record>
+
     <record id="action_m365_tenant" model="ir.actions.act_window">
         <field name="name">Tenants</field>
         <field name="res_model">m365.tenant</field>
         <field name="view_mode">list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Connect your first Microsoft 365 tenant</p>
-            <p>Register an application in Microsoft Entra ID and enter its credentials to start
-               synchronising the license inventory.</p>
+            <p>Type <b>Existing</b>: register an application in Microsoft Entra ID and enter its
+               credentials to start synchronising the license inventory.</p>
+            <p>Type <b>New</b>: create the tenant through Microsoft Partner Center first, then
+               connect it.</p>
         </field>
     </record>
 </odoo>

@@ -56,9 +56,9 @@
     </record>
 
     <!-- Triggered when tenants are queued; the hourly run picks up interrupted ones -->
-    <record id="ir_cron_m365_provision_tenants" model="ir.cron">
+    <record id="ir_cron_m365_create_tenants" model="ir.cron">
         <field name="name">Microsoft 365: Create Queued Tenants</field>
-        <field name="model_id" ref="model_m365_tenant_provision"/>
+        <field name="model_id" ref="model_m365_tenant"/>
         <field name="state">code</field>
         <field name="code">model._cron_provision_tenants()</field>
         <field name="user_id" ref="base.user_root"/>

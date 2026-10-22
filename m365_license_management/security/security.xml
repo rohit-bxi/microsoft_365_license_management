@@ -39,12 +39,6 @@
         <field name="global" eval="True"/>
         <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
     </record>
-    <record id="m365_tenant_provision_company_rule" model="ir.rule">
-        <field name="name">Tenant to Create: multi-company</field>
-        <field name="model_id" ref="model_m365_tenant_provision"/>
-        <field name="global" eval="True"/>
-        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
-    </record>
 
     <!-- Request visibility: users see their own, administrators see all -->
     <record id="m365_request_user_rule" model="ir.rule">

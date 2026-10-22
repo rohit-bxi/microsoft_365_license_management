@@ -1,24 +1,27 @@
-# Create Tenants in Server: Implementation Plan
+# New Tenants through Partner Center: Implementation Plan
 
 Creation of new Microsoft 365 customer tenants from Odoo, through Microsoft Partner
 Center, based on the `Bulk-M365Customers.ps1` provisioning script.
 
-Status: implemented in module version 19.0.1.2.0 (sections 1 to 9). Section 10 lists the
-next phases.
+Status: implemented in module version 19.0.1.2.0 and merged into the tenant master in
+19.0.1.3.0 (sections 1 to 9). Section 10 lists the next phases.
+
+**19.0.1.3.0:** the separate model `m365.tenant.provision` is removed. A tenant to create
+is now an `m365.tenant` record of **Type = New**; *Existing* tenants work as before. The
+upgrade moves the old records to `m365.tenant` (type New) and drops their tables.
 
 ## 1. Goal
 
-From **Microsoft 365 › Configuration › Create Tenants in Server**, a Microsoft 365
-administrator can:
+From **Microsoft 365 › Configuration › Tenants**, a Microsoft 365 administrator can:
 
-1. Enter one customer (Single Tenant) or load many from a CSV / Excel file (Multi Tenant,
-   the `Customers.csv` of the script).
+1. Add a tenant of type **New** (Single Tenant) or load many from a CSV / Excel file
+   (Bulk Import Tenant, type New: the `Customers.csv` of the script).
 2. Check each customer with Microsoft: the domain is free and the address is valid.
 3. Create the tenants in Microsoft 365. Each one gets a new Microsoft Entra tenant, a
    reseller relationship with the partner and a first global administrator.
 4. See the result of each customer (status, customer ID, error and timestamp, as in
-   `ProvisioningResults.csv`), then register the new tenant in Odoo to manage its
-   licenses.
+   `ProvisioningResults.csv`), then connect the same record (client ID and secret, Test
+   Connection) to manage its licenses.
 
 ## 2. From the PowerShell script to Odoo
 
@@ -34,7 +37,7 @@ Partner Center PowerShell module for this, which calls the Partner Center REST A
 
 | Script                                        | Odoo                                                     |
 |-----------------------------------------------|----------------------------------------------------------|
-| `C:\M365Provisioning\Customers.csv`           | Multi Tenant wizard (CSV or .xlsx, same column names)    |
+| `C:\M365Provisioning\Customers.csv`           | Bulk Import Tenant, type New (CSV or .xlsx, same columns) |
 | `foreach ($Customer in $Customers)`           | Background job, one customer at a time                   |
 | `New-PCCustomer` (to be completed)            | `POST /v1/customers` with the documented request schema  |
 | `try` / `catch` per customer                  | A failure only fails its own record (status *Failed*)    |
@@ -54,31 +57,37 @@ Partner Center PowerShell module for this, which calls the Partner Center REST A
 
 ## 4. Design
 
-New file `models/m365_tenant_provision.py`:
+| File / model | Purpose |
+|---|---|
+| `m365.tenant` field **Type** (`tenant_type`: Existing / New) | Selects the workflow. *Existing* (default) requires the Directory and Client IDs; *New* gets its Directory ID from Microsoft when created |
+| `models/m365_tenant_creation.py` (`_inherit = 'm365.tenant'`) | Customer data (contact, registered address, registration number, GDAP), **Creation Status** (`provision_state`), Check / Create / Retry, the scheduled creation and the result (customer ID, admin user and password) |
+| `models/m365_partner_account.py`: `m365.partner.account` | Partner Center connection: credentials, token cache, `_pc_request()` client, Test Connection, defaults for new customers (culture, language, GDAP) |
+| `m365.tenant.import.wizard` (Bulk Import Tenant) | Type Existing: tenants to connect. Type New: `Customers.csv`, with its own template |
 
-| Model                                  | Purpose                                                                                 |
-|----------------------------------------|-----------------------------------------------------------------------------------------|
-| `m365.partner.account`                 | Partner Center connection: credentials, token cache, `_pc_request()` client, Test Connection, defaults for new customers (culture, language, GDAP) |
-| `m365.tenant.provision`                | One customer tenant to create: company, `*.onmicrosoft.com` domain, contact, registered address, registration number; status and result |
-| `m365.tenant.provision.import.wizard`  | Bulk load of `Customers.csv` (reuses `m365.file.import.mixin`), with template download   |
-| `m365.tenant.provision.import.line`    | Validation result per file row                                                           |
+Other parts: the Partner Center Account menu (*Configuration › Tenants*), access rights
+(administrators only), multi-company record rule, the audit log operation *Tenant
+Creation* (linked to the tenant) and the scheduled action
+*Microsoft 365: Create Queued Tenants* (`ir_cron_m365_create_tenants`).
 
-Other changes: `views/m365_tenant_provision_views.xml` (new), the menus in
-`views/menu.xml`, access rights (administrators only), multi-company record rules, the
-audit log operation *Tenant Creation* and the scheduled action
-*Microsoft 365: Create Queued Tenants*.
-
-### Statuses of a tenant to create
+### Workflow of a tenant of type New
 
 ```
 To Check --Check OK--> Ready --Create in Microsoft 365--> Creating --success--> Created
    ^  |                  |                                   |
    |  +--errors (stay)   +--data changed--> To Check         +--error--> Failed --Retry--> Creating
    +----------------------------------- Reset to Draft ---------------------+
+
+Created --> connection status Not Tested --Test Connection--> Connected (as an existing tenant)
 ```
 
+- The form shows the creation status bar and the *Tenant Creation* tab until the tenant
+  is created, then the connection status bar and the usual tabs.
 - Changing the data of a *Ready* or *Failed* tenant sends it back to *To Check*.
-- *Creating* and *Created* tenants cannot be changed or deleted: they are real tenants.
+- The Partner Center data of *Creating* and *Created* tenants cannot be changed and they
+  cannot be deleted (archive them instead); their name and domain stay editable.
+- The type cannot change once the tenant is created or connected.
+- Tenants not created yet are left out of Test Connection, synchronisation, the
+  dashboard, the REST API tenant list and the license request tenants.
 
 ## 5. Partner Center calls
 
@@ -128,8 +137,9 @@ Emirates, etc.).
 
 ## 7. Security
 
-- Partner Center accounts, tenants to create and the import wizard are restricted to
-  the **Microsoft 365 / Administrator** group. Multi-company rules apply.
+- Partner Center accounts, the creation data of the tenants (*Tenant Creation* tab) and
+  the import wizard are restricted to the **Microsoft 365 / Administrator** group.
+  Multi-company rules apply.
 - The client secret and the token are hidden from other users (field groups), as for the
   tenants.
 - The **initial admin password** returned by Microsoft is visible to administrators only
@@ -140,19 +150,20 @@ Emirates, etc.).
 
 ## 8. User guide
 
-1. *Create Tenants in Server › Partner Center Account*: enter the IDs and the secret, then
-   press **Test Connection**.
-2. *Single Tenant*: create a record, or use *Multi Tenant* to load a file (use **Download
-   Template**). A domain without a dot, e.g. `contoso`, becomes
-   `contoso.onmicrosoft.com`.
-3. Select the tenants and use **Check**. Fix the reported errors. If Microsoft cannot
-   verify an address you know is correct, tick **Address Confirmed**.
+1. *Tenants › Partner Center Account*: enter the IDs and the secret, then press
+   **Test Connection**.
+2. *Tenants › Single Tenant*: create a record of type **New**, or use *Bulk Import Tenant*
+   with type **New** to load a file (use **Download Template**). A domain without a dot,
+   e.g. `contoso`, becomes `contoso.onmicrosoft.com`.
+3. Select the tenants and use **Check** (*Check (New Tenants)* in the list). Fix the
+   reported errors. If Microsoft cannot verify an address you know is correct, tick
+   **Address Confirmed**.
 4. Select the *Ready* tenants and use **Create in Microsoft 365**. Results appear within
    about a minute.
-5. Open a *Created* tenant: copy the admin user and password for the customer, then press
-   **Manage Licenses in Odoo**. This opens a new Odoo tenant pre-filled with the name,
-   domain and directory ID. Add an app registration of the new tenant (client ID and
-   secret), then use **Test Connection** as for any tenant.
+5. Open a *Created* tenant: copy the admin user and password for the customer from the
+   *Tenant Creation* tab. Its directory ID is filled in: add the client ID and secret of
+   an app registration consented in the new tenant (*Entra App Registration* tab), then
+   use **Test Connection** as for any tenant.
 
 `Customers.csv` columns (headers are matched ignoring case, spaces and underscores, so
 the field labels can be used as well):
@@ -163,10 +174,13 @@ name), `Culture`, `Language`, `OrganizationRegistrationNumber` (*required).
 
 ## 9. Testing
 
-Automated: `tests/test_m365_tenant_provision.py` (14 tests, Partner Center mocked). It
-covers field checks, domain and address checks, the request body, success, failure,
-timeout with the same request ID, batching, the restriction to administrators, the
-Partner Center client (token, headers, errors) and the CSV / Excel import.
+Automated: `tests/test_m365_tenant_creation.py` (13 tests, Partner Center mocked) and the
+type New cases of `tests/test_m365_tenant_import.py`. They cover the type rules
+(required IDs, type changes), field checks, domain and address checks, the request
+body, success, failure, timeout with the same request ID, batching, the restriction to
+administrators, tenants not created yet being left out of connection, synchronisation and
+dashboard, the Partner Center client (token, headers, errors) and the CSV / Excel
+import.
 
 ```
 odoo-bin -c <config> -d <test database> -u m365_license_management \
