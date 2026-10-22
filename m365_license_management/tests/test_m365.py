@@ -19,8 +19,8 @@ class TestM365(TransactionCase):
         super().setUpClass()
         cls.tenant = cls.env['m365.tenant'].create({
             'name': 'Test', 'domain': 'test.com', 'tenant_id': 'tid',
-            'client_id': 'cid', 'client_secret': 'secret',
-            'allow_license_operations': True, 'state': 'connected',
+            'client_id': 'cid', 'client_secret': 'secret', 'state': 'connected',
+            'allow_license_operations': True, 'auto_approve_admins': False,
             # Full user reads (GET /users); delta queries are tested in test_m365_live
             'use_delta_sync': False,
         })

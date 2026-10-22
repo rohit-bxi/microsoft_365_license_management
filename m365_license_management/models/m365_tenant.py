@@ -76,12 +76,12 @@ class M365Tenant(models.Model):
         ('error', 'Connection Error'),
     ], string="Status", default='draft', readonly=True, tracking=True, copy=False)
     allow_license_operations = fields.Boolean(
-        string="Enable License Operations", tracking=True,
+        string="Enable License Operations", default=True, tracking=True,
         help="Allow assignment / removal of licenses through Microsoft Graph. Keep disabled "
              "for read-only (inventory only) integration. Requires write permissions "
              "(LicenseAssignment.ReadWrite.All or User.ReadWrite.All) on the app registration.")
     auto_approve_admins = fields.Boolean(
-        string="Skip Approval for Administrators",
+        string="Skip Approval for Administrators", default=True,
         help="Requests raised by Microsoft 365 administrators are approved automatically.")
     sync_enabled = fields.Boolean(string="Scheduled Synchronisation", default=True)
     sync_users = fields.Boolean(string="Synchronise Users", default=True,

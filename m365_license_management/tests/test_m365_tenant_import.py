@@ -66,8 +66,8 @@ class TestM365TenantImport(TransactionCase):
         self.assertEqual(contoso.low_availability_percent, 15)
         self.assertEqual(contoso.sudo().client_secret, 's1')
         fabrikam = tenants - contoso
-        # Blank or missing switches are TRUE, other blank cells keep the model defaults
-        # and GUIDs are stored in lower case
+        # Blank or missing cells keep the model defaults (switches enabled) and GUIDs are
+        # stored in lower case
         self.assertEqual(fabrikam.tenant_id, GUID_2)
         self.assertTrue(fabrikam.allow_license_operations)
         self.assertTrue(all(tenants.mapped('auto_approve_admins')))
@@ -162,12 +162,10 @@ class TestM365TenantImport(TransactionCase):
         headers = [cell.value for cell in sheet[1]]
         self.assertEqual(headers, [
             'Tenant Name', 'Primary Domain', 'Directory (Tenant) ID', 'Application (Client) ID',
-            'Client Secret', 'Authority URL', 'Graph API URL', 'Graph Scope',
-            'Enable License Operations', 'Skip Approval for Administrators',
-            'Scheduled Synchronisation', 'Synchronise Users'])
-        self.assertEqual(sheet.max_row, 5)  # header + 4 example tenants
+            'Client Secret', 'Authority URL', 'Graph API URL', 'Graph Scope'])
+        self.assertEqual(sheet.max_row, 4)  # header + 3 example tenants
         # Columns that are not in the template can still be added
-        extra = ['Low Availability Threshold (Units)', 'Company']
+        extra = ['Scheduled Synchronisation', 'Low Availability Threshold (Units)', 'Company']
         for col, title in enumerate(extra, start=len(headers) + 1):
             sheet.cell(row=1, column=col, value=title)
         row = dict.fromkeys(headers + extra)
@@ -182,17 +180,15 @@ class TestM365TenantImport(TransactionCase):
         wizard.write({'file': base64.b64encode(out.getvalue()), 'filename': 'tenants.xlsx'})
         wizard.action_validate()
         # The example tenants are valid test data
-        self.assertEqual((wizard.line_count, wizard.error_count), (5, 0))
+        self.assertEqual((wizard.line_count, wizard.error_count), (4, 0))
         wizard.action_import()
         Tenant = self.env['m365.tenant']
-        fabrikam = Tenant.search([('domain', '=', 'fabrikam.com')])
-        self.assertEqual((fabrikam.allow_license_operations, fabrikam.sync_users),
-                         (False, False))
         northwind = Tenant.search([('domain', '=', 'northwindtraders.com')])
         self.assertEqual(northwind.graph_url, 'https://graph.microsoft.us/v1.0')
         adventure = Tenant.search([('domain', '=', 'adventure-works.com')])
         self.assertFalse(adventure.sudo().client_secret)
-        self.assertTrue(adventure.allow_license_operations and adventure.auto_approve_admins)
+        self.assertTrue(adventure.allow_license_operations and adventure.auto_approve_admins
+                        and adventure.sync_enabled and adventure.sync_users)
         tenant = Tenant.search([('tenant_id', '=', GUID_1)])
         self.assertEqual(tenant.name, 'Woodgrove Bank')
         self.assertFalse(tenant.sync_enabled)
