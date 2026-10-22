@@ -17,7 +17,8 @@ class M365LicenseRequest(models.Model):
     name = fields.Char(string="Reference", default=lambda self: _('New'), readonly=True,
                        copy=False)
     tenant_id = fields.Many2one('m365.tenant', string="Tenant", required=True, tracking=True,
-                                index=True)
+                                index=True, domain="['|', ('tenant_type', '=', 'existing'), "
+                                                   "('provision_state', '=', 'done')]")
     request_type = fields.Selection([
         ('assign', 'Assign License'),
         ('remove', 'Remove License'),

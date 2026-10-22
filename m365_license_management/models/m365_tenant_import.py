@@ -79,12 +79,55 @@ SAMPLE_ROWS = [
      'client_id': 'bbbbbbbb-0000-0000-0000-000000000004'},
 ]
 
+# Columns of the new tenants to create (Customers.csv of the provisioning script): (field
+# name, value type, required). The header is the Customers.csv column name below, the
+# field label or the technical name.
+NEW_COLUMNS = [
+    ('name', 'text', True),
+    ('domain', 'initial_domain', True),
+    ('contact_first_name', 'text', True),
+    ('contact_last_name', 'text', True),
+    ('contact_email', 'text', True),
+    ('contact_phone', 'text', False),
+    ('address_line1', 'text', True),
+    ('address_line2', 'text', False),
+    ('city', 'text', True),
+    ('address_state', 'text', False),
+    ('postal_code', 'text', True),
+    ('country_id', 'country', True),
+    ('culture', 'text', False),
+    ('language', 'text', False),
+    ('organization_registration_number', 'text', False),
+]
+NEW_HEADERS = {
+    'name': 'CompanyName', 'domain': 'Domain', 'contact_first_name': 'FirstName',
+    'contact_last_name': 'LastName', 'contact_email': 'Email', 'contact_phone': 'PhoneNumber',
+    'address_line1': 'AddressLine1', 'address_line2': 'AddressLine2', 'city': 'City',
+    'address_state': 'State', 'postal_code': 'PostalCode', 'country_id': 'Country',
+    'culture': 'Culture', 'language': 'Language',
+    'organization_registration_number': 'OrganizationRegistrationNumber',
+}
+NEW_TEMPLATE_NAME = 'm365_customers_template.xlsx'
+NEW_SAMPLE = ('Contoso Ltd', 'contosoltd', 'Adele', 'Vance', 'adele.vance@contoso.com',
+              '+91 80 4000 1000', '1 MG Road', '', 'Bengaluru', 'KA', '560001', 'IN',
+              'en-IN', 'en', 'U72900KA2020PTC000000')
+
 
 class M365TenantImportWizard(models.TransientModel):
     _name = 'm365.tenant.import.wizard'
     _inherit = 'm365.file.import.mixin'
     _description = 'Import Microsoft 365 Tenants'
 
+    tenant_type = fields.Selection([
+        ('existing', 'Existing'),
+        ('new', 'New'),
+    ], string="Type", default='existing', required=True,
+        help="Existing: tenants to connect, with their app registration.\n"
+             "New: tenants to create through Partner Center (Customers.csv).")
+    partner_account_id = fields.Many2one(
+        'm365.partner.account', string="Partner Center Account",
+        default=lambda self: self.env['m365.tenant']._default_partner_account(),
+        help="The new tenants are created as customers of this account.")
     file = fields.Binary(string="File", attachment=False,
                          help="CSV or Excel (.xlsx) file with one tenant per row.")
     filename = fields.Char()
@@ -99,7 +142,7 @@ class M365TenantImportWizard(models.TransientModel):
             wiz.line_count = len(wiz.line_ids)
             wiz.error_count = len(wiz.line_ids.filtered(lambda l: l.status == 'error'))
 
-    @api.onchange('file')
+    @api.onchange('file', 'tenant_type', 'partner_account_id')
     def _onchange_file(self):
         # A new file must be validated again before tenants can be created
         self.line_ids = [Command.clear()]
@@ -107,13 +150,24 @@ class M365TenantImportWizard(models.TransientModel):
     # ------------------------------------------------------------------
     # File reading
     # ------------------------------------------------------------------
+    def _columns(self):
+        """(field name, value type, required) of the columns of the selected type."""
+        return NEW_COLUMNS if self.tenant_type == 'new' else COLUMNS
+
+    def _column_title(self, fname):
+        if self.tenant_type == 'new':
+            return NEW_HEADERS[fname]
+        return self.env['m365.tenant']._fields[fname].string
+
     def _map_header(self, header):
         """Map column positions to m365.tenant field names."""
         Tenant = self.env['m365.tenant']
+        columns = self._columns()
         lookup = {}
-        for fname, _kind, _required in COLUMNS:
+        for fname, _kind, _required in columns:
             lookup[fname] = fname
             lookup[self._normalise(Tenant._fields[fname].string)] = fname
+            lookup[self._normalise(self._column_title(fname))] = fname
         mapping, unknown = {}, []
         for index, title in enumerate(header):
             if not title:
@@ -129,8 +183,8 @@ class M365TenantImportWizard(models.TransientModel):
             raise UserError(_(
                 "Unknown column(s): %(unknown)s.\nAllowed columns: %(allowed)s.",
                 unknown=", ".join(unknown),
-                allowed=", ".join(Tenant._fields[f].string for f, _k, _r in COLUMNS)))
-        missing = [Tenant._fields[f].string for f, _k, required in COLUMNS
+                allowed=", ".join(self._column_title(f) for f, _k, _r in columns)))
+        missing = [self._column_title(f) for f, _k, required in columns
                    if required and f not in mapping.values()]
         if missing:
             raise UserError(_("Missing required column(s): %s.", ", ".join(missing)))
@@ -139,8 +193,11 @@ class M365TenantImportWizard(models.TransientModel):
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
-    def _convert(self, kind, text, companies):
-        """Return the field value for a cell, raise ValueError when it is not valid."""
+    def _convert(self, kind, text, lookups):
+        """Return the field value for a cell, raise ValueError when it is not valid.
+
+        :param lookups: records by lower case name: ``{'company': {...}, 'country': {...}}``
+        """
         if kind == 'guid':
             if not GUID_RE.match(text):
                 raise ValueError(_("\"%s\" is not a valid ID (expected "
@@ -173,10 +230,18 @@ class M365TenantImportWizard(models.TransientModel):
                 raise ValueError(_("%s must be a whole number of 0 or more.", text))
             return int(number)
         if kind == 'company':
-            company = companies.get(text.lower())
+            company = lookups['company'].get(text.lower())
             if not company:
                 raise ValueError(_("Company \"%s\" not found in your allowed companies.", text))
             return company.id
+        if kind == 'country':
+            country = lookups['country'].get(text.lower())
+            if not country:
+                raise ValueError(_("Country \"%s\" not found: use the ISO code, e.g. IN.", text))
+            return country.id
+        if kind == 'initial_domain':
+            # Validated with the other data of the new tenant (_check_values)
+            return self.env['m365.tenant']._normalise_domain(text)
         return text
 
     def _parse(self):
@@ -191,9 +256,22 @@ class M365TenantImportWizard(models.TransientModel):
             raise UserError(_("The file contains no tenant rows below the header."))
         mapping = self._map_header(rows[0])
         Tenant = self.env['m365.tenant']
-        kinds = {fname: kind for fname, kind, _required in COLUMNS}
-        required = {fname for fname, _kind, req in COLUMNS if req}
-        companies = {c.name.lower(): c for c in self.env.user.company_ids}
+        columns = self._columns()
+        kinds = {fname: kind for fname, kind, _required in columns}
+        required = {fname for fname, _kind, req in columns if req}
+        lookups = {'company': {c.name.lower(): c for c in self.env.user.company_ids}}
+        defaults = dict(IMPORT_DEFAULTS)
+        if self.tenant_type == 'new':
+            account = self.partner_account_id
+            if not account:
+                raise UserError(_("Select the Partner Center account of the new tenants."))
+            lookups['country'] = {}
+            for country in self.env['res.country'].search([]):
+                lookups['country'][country.code.lower()] = country
+                lookups['country'][country.name.lower()] = country
+            defaults.update(tenant_type='new', partner_account_id=account.id,
+                            culture=account.default_culture,
+                            language=account.default_language, enable_gdap=account.enable_gdap)
         # The unique constraint is global: also check archived / other company tenants
         tenants = Tenant.sudo().with_context(active_test=False).search([])
         existing = {fname: {(value or '').lower() for value in tenants.mapped(fname)}
@@ -201,7 +279,7 @@ class M365TenantImportWizard(models.TransientModel):
         seen = {fname: {} for fname in UNIQUE_FIELDS}
         result = []
         for sn, values in enumerate(rows[1:], start=1):
-            raw, vals, errors = {}, dict(IMPORT_DEFAULTS), []
+            raw, vals, errors, invalid = {}, dict(defaults), [], set()
             for index, fname in mapping.items():
                 text = raw[fname] = values[index] if index < len(values) else ''
                 label = Tenant._fields[fname].string
@@ -210,9 +288,15 @@ class M365TenantImportWizard(models.TransientModel):
                         errors.append(_("%s is required.", label))
                     continue
                 try:
-                    vals[fname] = self._convert(kinds[fname], text, companies)
+                    vals[fname] = self._convert(kinds[fname], text, lookups)
                 except ValueError as exc:
+                    invalid.add(label)
                     errors.append(_("%(field)s: %(error)s", field=label, error=exc))
+            if self.tenant_type == 'new':
+                # The checks of the Check button, without repeating the errors above
+                skip = set(errors) | {_("%s is required.", label) for label in invalid}
+                errors += [error for error in Tenant.new(vals)._check_values()
+                           if error not in skip]
             for fname in UNIQUE_FIELDS:
                 key = (vals.get(fname) or '').lower()
                 if not key:
@@ -250,6 +334,8 @@ class M365TenantImportWizard(models.TransientModel):
             'domain': row['raw'].get('domain'),
             'directory_id': row['raw'].get('tenant_id'),
             'client_id': row['raw'].get('client_id'),
+            'email': row['raw'].get('contact_email'),
+            'country': row['raw'].get('country_id'),
             'status': 'error' if row['errors'] else 'valid',
             'message': "\n".join(row['errors']) or False,
         }) for row in parsed]
@@ -279,13 +365,18 @@ class M365TenantImportWizard(models.TransientModel):
             'm365_license_management.action_m365_tenant')
         action.update(name=_("Imported Tenants"), domain=[('id', 'in', tenants.ids)],
                       target='main')
+        if self.tenant_type == 'new':
+            message = _("%s tenant(s) added. Select them and use Check, then Create in "
+                        "Microsoft 365.", len(tenants))
+        else:
+            message = _("%s tenant(s) created. Test their connection to start "
+                        "synchronising.", len(tenants))
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': _("Microsoft 365"),
-                'message': _("%s tenant(s) created. Test their connection to start "
-                             "synchronising.", len(tenants)),
+                'message': message,
                 'type': 'success',
                 'next': action,
             },
@@ -300,8 +391,30 @@ class M365TenantImportWizard(models.TransientModel):
             'bool': _("TRUE or FALSE"),
         }
 
+    def _new_tenant_template(self):
+        """Customers.csv columns, with one example customer."""
+        Tenant = self.env['m365.tenant']
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.title = _("Customers")
+        required_fill = PatternFill('solid', fgColor='FFF2CC')
+        for col, (fname, _kind, required) in enumerate(NEW_COLUMNS, start=1):
+            title = NEW_HEADERS[fname]
+            cell = sheet.cell(row=1, column=col, value=title)
+            cell.font = Font(bold=True)
+            if required:
+                cell.fill = required_fill
+            hint = Tenant._fields[fname].help or Tenant._fields[fname].string
+            cell.comment = Comment(_("Required. %s", hint) if required else hint, 'Odoo')
+            sheet.column_dimensions[cell.column_letter].width = max(14, len(title) + 4)
+        sheet.append(list(NEW_SAMPLE))
+        sheet.freeze_panes = 'A2'
+        return book
+
     def action_download_template(self):
         self.ensure_one()
+        if self.tenant_type == 'new':
+            return self._download_workbook(self._new_tenant_template(), NEW_TEMPLATE_NAME)
         Tenant = self.env['m365.tenant']
         hints = self._template_hints()
         defaults = dict(Tenant.default_get(list(TEMPLATE_FIELDS)), **IMPORT_DEFAULTS)
@@ -346,5 +459,7 @@ class M365TenantImportLine(models.TransientModel):
     domain = fields.Char(string="Primary Domain")
     directory_id = fields.Char(string="Directory (Tenant) ID")
     client_id = fields.Char(string="Application (Client) ID")
+    email = fields.Char(string="Contact Email")
+    country = fields.Char(string="Country")
     status = fields.Selection([('valid', 'Valid'), ('error', 'Error')], string="Status")
     message = fields.Text(string="Errors")
