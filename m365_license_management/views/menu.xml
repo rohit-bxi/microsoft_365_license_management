@@ -18,7 +18,7 @@
 
     <menuitem id="menu_m365_config" name="Configuration" parent="menu_m365_root" sequence="10"
               groups="m365_license_management.group_m365_admin"/>
-    <menuitem id="menu_m365_provision_root" name="Create Tenants in Server"
+    <!-- <menuitem id="menu_m365_provision_root" name="Create Tenants in Server"
               parent="menu_m365_config" sequence="0"/>
     <menuitem id="menu_m365_provision" name="Single Tenant" parent="menu_m365_provision_root"
               action="action_m365_tenant_provision" sequence="1"/>
@@ -27,12 +27,12 @@
               sequence="2"/>
     <menuitem id="menu_m365_partner_account" name="Partner Center Account"
               parent="menu_m365_provision_root" action="action_m365_partner_account"
-              sequence="3"/>
+              sequence="3"/> -->
     <menuitem id="menu_m365_tenants_root" name="Tenants" parent="menu_m365_config"
               sequence="1"/>
     <menuitem id="menu_m365_tenants" name="Single Tenant" parent="menu_m365_tenants_root"
               action="action_m365_tenant" sequence="1"/>
-    <menuitem id="menu_m365_tenants_import" name="Multi Tenant"
+    <menuitem id="menu_m365_tenants_import" name="Bulk Import Tenant"
               parent="menu_m365_tenants_root" action="action_m365_tenant_import" sequence="2"/>
     <menuitem id="menu_m365_products" name="Product Catalogue" parent="menu_m365_config"
               action="action_m365_product" sequence="2"/>
