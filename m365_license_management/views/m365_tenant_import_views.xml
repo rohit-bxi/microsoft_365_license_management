@@ -11,9 +11,10 @@
                     press <b>Validate</b>. Use <b>Download Template</b> for the columns:
                     <i>Tenant Name</i>, <i>Primary Domain</i>, <i>Directory (Tenant) ID</i> and
                     <i>Application (Client) ID</i> are required. Blank endpoint URLs use the
-                    defaults and blank TRUE/FALSE switches are set to TRUE. The template
-                    contains 4 example tenants: replace or delete them before importing your
-                    own tenants. Tenants are created only when every row is valid.
+                    defaults; license operations and synchronisation are enabled and can be
+                    changed on the tenant afterwards. The template contains 3 example
+                    tenants: replace or delete them before importing your own tenants.
+                    Tenants are created only when every row is valid.
                 </div>
                 <div class="alert alert-info" role="alert"
                      invisible="line_count or tenant_type != 'new'">

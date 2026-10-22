@@ -4,7 +4,6 @@ import re
 import openpyxl
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill
-from openpyxl.worksheet.datavalidation import DataValidation
 
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError
@@ -37,46 +36,29 @@ COLUMNS = [
 ]
 # Must be unique (case insensitive) within the file and among the existing tenants
 UNIQUE_FIELDS = ('tenant_id', 'domain', 'name')
-# Columns of the downloadable template; the other columns may be added to the file
+# Columns of the downloadable template; the other columns may be added to the file. The
+# operation and synchronisation switches are left out: they are enabled by default and
+# changed on the tenant.
 TEMPLATE_FIELDS = ('name', 'domain', 'tenant_id', 'client_id', 'client_secret',
-                   'authority_url', 'graph_url', 'graph_scope', 'allow_license_operations',
-                   'auto_approve_admins', 'sync_enabled', 'sync_users')
-# Imported tenants are fully enabled unless the file says otherwise
-IMPORT_DEFAULTS = {
-    'allow_license_operations': True,
-    'auto_approve_admins': True,
-    'sync_enabled': True,
-    'sync_users': True,
-}
+                   'authority_url', 'graph_url', 'graph_scope')
 # Example rows of the template (valid, importable test data with placeholder IDs)
 SAMPLE_ROWS = [
     {'name': 'Contoso Ltd', 'domain': 'contoso.com',
      'tenant_id': 'aaaaaaaa-0000-0000-0000-000000000001',
      'client_id': 'bbbbbbbb-0000-0000-0000-000000000001',
-     'client_secret': 'replace-with-client-secret',
-     'allow_license_operations': True, 'auto_approve_admins': True,
-     'sync_enabled': True, 'sync_users': True},
-    # Read-only inventory, no user directory
-    {'name': 'Fabrikam Inc', 'domain': 'fabrikam.com',
+     'client_secret': 'replace-with-client-secret'},
+    # Sovereign cloud (US Government) endpoints
+    {'name': 'Northwind Traders', 'domain': 'northwindtraders.com',
      'tenant_id': 'aaaaaaaa-0000-0000-0000-000000000002',
      'client_id': 'bbbbbbbb-0000-0000-0000-000000000002',
      'client_secret': 'replace-with-client-secret',
-     'allow_license_operations': False, 'auto_approve_admins': False,
-     'sync_enabled': True, 'sync_users': False},
-    # Sovereign cloud (US Government) endpoints
-    {'name': 'Northwind Traders', 'domain': 'northwindtraders.com',
-     'tenant_id': 'aaaaaaaa-0000-0000-0000-000000000003',
-     'client_id': 'bbbbbbbb-0000-0000-0000-000000000003',
-     'client_secret': 'replace-with-client-secret',
      'authority_url': 'https://login.microsoftonline.us',
      'graph_url': 'https://graph.microsoft.us/v1.0',
-     'graph_scope': 'https://graph.microsoft.us/.default',
-     'allow_license_operations': True, 'auto_approve_admins': False,
-     'sync_enabled': True, 'sync_users': True},
-    # Required columns only: blank secret (added later), default URLs, switches TRUE
+     'graph_scope': 'https://graph.microsoft.us/.default'},
+    # Required columns only: blank secret (added later), default URLs
     {'name': 'Adventure Works', 'domain': 'adventure-works.com',
-     'tenant_id': 'aaaaaaaa-0000-0000-0000-000000000004',
-     'client_id': 'bbbbbbbb-0000-0000-0000-000000000004'},
+     'tenant_id': 'aaaaaaaa-0000-0000-0000-000000000003',
+     'client_id': 'bbbbbbbb-0000-0000-0000-000000000003'},
 ]
 
 # Columns of the new tenants to create (Customers.csv of the provisioning script): (field
@@ -260,7 +242,7 @@ class M365TenantImportWizard(models.TransientModel):
         kinds = {fname: kind for fname, kind, _required in columns}
         required = {fname for fname, _kind, req in columns if req}
         lookups = {'company': {c.name.lower(): c for c in self.env.user.company_ids}}
-        defaults = dict(IMPORT_DEFAULTS)
+        defaults = {}
         if self.tenant_type == 'new':
             account = self.partner_account_id
             if not account:
@@ -388,7 +370,6 @@ class M365TenantImportWizard(models.TransientModel):
             'domain': _("Domain name, e.g. contoso.com"),
             'guid': _("GUID, e.g. 11111111-2222-3333-4444-555555555555"),
             'url': _("https:// address"),
-            'bool': _("TRUE or FALSE"),
         }
 
     def _new_tenant_template(self):
@@ -417,13 +398,11 @@ class M365TenantImportWizard(models.TransientModel):
             return self._download_workbook(self._new_tenant_template(), NEW_TEMPLATE_NAME)
         Tenant = self.env['m365.tenant']
         hints = self._template_hints()
-        defaults = dict(Tenant.default_get(list(TEMPLATE_FIELDS)), **IMPORT_DEFAULTS)
+        defaults = Tenant.default_get(list(TEMPLATE_FIELDS))
         book = openpyxl.Workbook()
         sheet = book.active
         sheet.title = _("Tenants")
         required_fill = PatternFill('solid', fgColor='FFF2CC')
-        bool_choice = DataValidation(type='list', formula1='"TRUE,FALSE"', allow_blank=True)
-        sheet.add_data_validation(bool_choice)
         columns = [column for column in COLUMNS if column[0] in TEMPLATE_FIELDS]
         for col, (fname, kind, required) in enumerate(columns, start=1):
             label = Tenant._fields[fname].string
@@ -438,8 +417,6 @@ class M365TenantImportWizard(models.TransientModel):
             else:
                 hint = _("Optional. %s", hint)
             cell.comment = Comment(hint, 'Odoo')
-            if kind == 'bool':
-                bool_choice.add('%(c)s2:%(c)s1000' % {'c': cell.column_letter})
             sheet.column_dimensions[cell.column_letter].width = max(16, len(label) + 4)
         for sample in SAMPLE_ROWS:
             sheet.append([sample.get(fname) for fname, _kind, _required in columns])

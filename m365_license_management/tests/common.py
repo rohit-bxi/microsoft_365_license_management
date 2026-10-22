@@ -46,7 +46,7 @@ class M365Common(TransactionCase):
         cls.tenant = cls.env['m365.tenant'].create({
             'name': 'Contoso', 'domain': 'contoso.com', 'tenant_id': 'tid-contoso',
             'client_id': 'cid', 'client_secret': 'secret', 'state': 'connected',
-            'allow_license_operations': True,
+            'allow_license_operations': True, 'auto_approve_admins': False,
             # Full user reads (GET /users); delta queries are tested in test_m365_live
             'use_delta_sync': False,
         })
