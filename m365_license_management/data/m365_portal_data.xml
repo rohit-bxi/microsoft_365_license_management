@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Triggered by the portal (checks and connection tests of imported tenants);
+             the hourly run picks up interrupted ones -->
+        <record id="ir_cron_m365_portal_jobs" model="ir.cron">
+            <field name="name">Microsoft 365: Portal Background Jobs</field>
+            <field name="model_id" ref="model_m365_tenant"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_portal_jobs()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <!-- Rows of a file imported on the portal (0 = no limit) -->
+        <record id="config_m365_portal_import_max_rows" model="ir.config_parameter">
+            <field name="key">m365.portal_import_max_rows</field>
+            <field name="value">100</field>
+        </record>
+    </data>
+
+    <!-- Users list: give or remove the tenant self-service of the portal users -->
+    <record id="action_m365_portal_grant" model="ir.actions.server">
+        <field name="name">Microsoft 365: Allow Portal Tenant Self-Service</field>
+        <field name="model_id" ref="base.model_res_users"/>
+        <field name="binding_model_id" ref="base.model_res_users"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">
+group = env.ref('m365_license_management.group_m365_portal')
+portal_users = records.filtered(lambda user: user._is_portal())
+portal_users.sudo().write({'group_ids': [Command.link(group.id)]})
+skipped = len(records - portal_users)
+message = "%s portal user(s) can now add their Microsoft 365 tenants on the portal." % len(portal_users)
+if skipped:
+    message += " %s user(s) skipped: only portal users can be given access." % skipped
+action = {
+    'type': 'ir.actions.client',
+    'tag': 'display_notification',
+    'params': {'title': "Microsoft 365", 'message': message,
+               'type': 'warning' if skipped else 'success',
+               'next': {'type': 'ir.actions.client', 'tag': 'soft_reload'}},
+}
+        </field>
+    </record>
+
+    <record id="action_m365_portal_revoke" model="ir.actions.server">
+        <field name="name">Microsoft 365: Remove Portal Tenant Self-Service</field>
+        <field name="model_id" ref="base.model_res_users"/>
+        <field name="binding_model_id" ref="base.model_res_users"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">
+group = env.ref('m365_license_management.group_m365_portal')
+users = records.filtered(lambda user: group in user.group_ids)
+users.sudo().write({'group_ids': [Command.unlink(group.id)]})
+action = {
+    'type': 'ir.actions.client',
+    'tag': 'display_notification',
+    'params': {'title': "Microsoft 365",
+               'message': "%s user(s) can no longer use the tenant self-service of the portal. Their tenants stay in Odoo." % len(users),
+               'type': 'success',
+               'next': {'type': 'ir.actions.client', 'tag': 'soft_reload'}},
+}
+        </field>
+    </record>
+</odoo>

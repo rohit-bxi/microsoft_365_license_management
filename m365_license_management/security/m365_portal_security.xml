@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Portal users who add and connect their own tenants on /my/m365/tenants. Implies
+         the portal: Odoo refuses it for internal users (exclusive user types). -->
+    <record id="group_m365_portal" model="res.groups">
+        <field name="name">Microsoft 365: Portal Tenant Self-Service</field>
+        <field name="implied_ids" eval="[(4, ref('base.group_portal'))]"/>
+        <field name="comment">Portal users who create new Microsoft 365 tenants and connect existing ones on the portal (My Account > Microsoft 365 Tenants).</field>
+    </record>
+
+    <!-- Each portal user sees the tenants they added only. Read only: the portal
+         controller writes after checking this access. -->
+    <record id="m365_tenant_portal_rule" model="ir.rule">
+        <field name="name">Microsoft 365 Tenant: own portal tenants</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="groups" eval="[(4, ref('group_m365_portal'))]"/>
+        <field name="domain_force">[('portal_user_id', '=', user.id)]</field>
+    </record>
+</odoo>

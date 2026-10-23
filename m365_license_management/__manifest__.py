@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.4.0',
+    'version': '19.0.1.5.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment and audit via Microsoft Graph',
@@ -26,16 +26,20 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 * User tenant mapping: users only see the records of the tenants assigned to them
 * Scheduled synchronisation and low-availability notifications
 * Dashboard: totals, utilisation by product, distribution, tenant comparison
+* Portal self-service: portal users create new tenants and connect existing
+  ones, one by one or from a CSV / Excel file, and see their own tenants only
     """,
     'author': 'BXI Technologies',
     'website': 'https://bxitech.com/',
-    'depends': ['base', 'mail', 'web'],
+    'depends': ['base', 'mail', 'web', 'portal'],
     'data': [
         'security/security.xml',
+        'security/m365_portal_security.xml',
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
         'data/m365_product_data.xml',
         'data/ir_cron_data.xml',
+        'data/m365_portal_data.xml',
         'views/m365_tenant_views.xml',
         'views/m365_tenant_import_views.xml',
         'views/m365_partner_account_views.xml',
@@ -49,6 +53,8 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/m365_dashboard_views.xml',
         'views/m365_user_tenant_mapping_views.xml',
         'views/menu.xml',
+        'views/m365_tenant_portal_views.xml',
+        'views/m365_portal_templates.xml',
     ],
     'assets': {
         'web.assets_backend': [

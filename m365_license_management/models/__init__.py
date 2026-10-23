@@ -15,3 +15,4 @@ from . import m365_license_user
 from . import m365_license_request
 from . import m365_license_bulk
 from . import m365_dashboard
+from . import m365_tenant_portal

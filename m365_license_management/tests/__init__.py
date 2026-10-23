@@ -14,3 +14,4 @@ from . import test_m365_tenant_import
 from . import test_m365_tenant_creation
 from . import test_m365_security
 from . import test_m365_tenant_access
+from . import test_m365_portal
