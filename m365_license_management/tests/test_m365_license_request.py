@@ -7,7 +7,7 @@ from odoo.tests import new_test_user, tagged
 
 from ..models.m365_tenant import M365GraphError
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, GUID_B, USER_GROUP, USER_ID, USER_ID_2,
-                     M365Common, graph_stub)
+                     M365Common, graph_stub, map_tenants)
 
 
 @tagged('post_install', '-at_install')
@@ -16,7 +16,8 @@ class TestM365LicenseRequest(M365Common):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.requester = new_test_user(cls.env, 'm365_requester', groups=USER_GROUP)
+        cls.requester = map_tenants(
+            new_test_user(cls.env, 'm365_requester', groups=USER_GROUP), cls.tenant)
         cls.approver = new_test_user(cls.env, 'm365_approver', groups=ADMIN_GROUP)
 
     def _request(self, user=None, request_type='assign', env=None, **vals):

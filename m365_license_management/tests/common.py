@@ -36,6 +36,13 @@ def http_response(status=200, payload=None, headers=None):
     return resp
 
 
+def map_tenants(user, tenants):
+    """Let the Microsoft 365 user see these tenants (User Tenant Mapping)."""
+    tenants.env['m365.user.tenant.mapping'].create({
+        'user_id': user.id, 'tenant_ids': [Command.set(tenants.ids)]})
+    return user
+
+
 class M365Common(TransactionCase):
     """A connected tenant with one subscription (4 of 10 licenses assigned) and two
     users: Adele without license and Megan with the subscription."""

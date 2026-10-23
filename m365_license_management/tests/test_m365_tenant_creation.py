@@ -9,7 +9,7 @@ from odoo.tests import TransactionCase, new_test_user, tagged
 
 from ..models.m365_partner_account import M365PartnerCenterTimeout
 from ..models.m365_tenant import M365GraphError
-from .common import ADMIN_GROUP, MODELS, USER_GROUP, http_response
+from .common import ADMIN_GROUP, MODELS, USER_GROUP, http_response, map_tenants
 
 ACCOUNT = MODELS + '.m365_partner_account'
 PC_PATH = ACCOUNT + '.M365PartnerAccount._pc_request'
@@ -137,7 +137,8 @@ class TestM365TenantCreation(TransactionCase):
         ])
 
     def test_only_admins(self):
-        user = new_test_user(self.env, 'm365_creation_user', groups=USER_GROUP)
+        user = map_tenants(new_test_user(self.env, 'm365_creation_user', groups=USER_GROUP),
+                           self.tenant)
         tenant = self.tenant.with_user(user)
         self.assertEqual(tenant.name, 'Adatum Corporation')
         with self.assertRaises(AccessError):
@@ -203,7 +204,8 @@ class TestM365TenantCreation(TransactionCase):
     # Creation
     # ------------------------------------------------------------------
     def test_create(self):
-        user = new_test_user(self.env, 'm365_creation_user', groups=USER_GROUP)
+        user = map_tenants(new_test_user(self.env, 'm365_creation_user', groups=USER_GROUP),
+                           self.tenant)
         with self.assertRaisesRegex(UserError, 'Check the tenants first'):
             self.tenant.action_create()
         self.tenant.provision_state = 'ready'

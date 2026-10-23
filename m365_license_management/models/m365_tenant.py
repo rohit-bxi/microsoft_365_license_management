@@ -567,7 +567,7 @@ class M365Tenant(models.Model):
         """Called by the dashboard "Refresh" button (administrators only)."""
         if not self.env.user.has_group('m365_license_management.group_m365_admin'):
             raise UserError(_("Only Microsoft 365 administrators can refresh the inventory."))
-        domain = [('state', 'in', ('connected', 'error', 'draft'))] + self._live_domain()
+        domain = [('state', 'in', ('connected', 'error', 'draft'))] + self._dashboard_domain()
         if tenant_ids:
             domain.append(('id', 'in', tenant_ids))
         ok, messages = True, []

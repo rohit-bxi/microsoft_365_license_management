@@ -5,7 +5,7 @@ from odoo import fields
 from odoo.tests import new_test_user, tagged
 
 from ..models.m365_dashboard import _delta, _pct
-from .common import GUID_B, USER_GROUP, M365Common
+from .common import GUID_B, USER_GROUP, M365Common, map_tenants
 
 GUID_C = 'cccccccc-0000-0000-0000-000000000001'
 
@@ -107,7 +107,8 @@ class TestM365Dashboard(M365Common):
                          [('Inventory Synchronisation', 'success',
                            '1 subscription(s) synchronised.', 'Contoso')])
         # Users: their own requests
-        user = new_test_user(self.env, 'm365_dashboard_user', groups=USER_GROUP)
+        user = map_tenants(new_test_user(self.env, 'm365_dashboard_user', groups=USER_GROUP),
+                           self.tenant)
         Request = self.env['m365.license.request']
         own = Request.with_user(user).create({
             'tenant_id': self.tenant.id, 'user_id': self.adele.id, 'sku_id': self.sku.id})

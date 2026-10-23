@@ -8,7 +8,7 @@ from odoo.tools import mute_logger
 
 from ..models.m365_tenant import M365GraphError
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, GUID_B, USER_GROUP, USER_ID, M365Common,
-                     graph_stub)
+                     graph_stub, map_tenants)
 
 API = '/m365/api/v1'
 ADMIN_ONLY = 'Only Microsoft 365 administrators can perform this action.'
@@ -20,7 +20,8 @@ class TestM365Controllers(HttpCase, M365Common):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.user = new_test_user(cls.env, 'm365_api_user', groups=USER_GROUP)
+        cls.user = map_tenants(new_test_user(cls.env, 'm365_api_user', groups=USER_GROUP),
+                               cls.tenant)
         cls.admin = new_test_user(cls.env, 'm365_api_admin', groups=ADMIN_GROUP)
         cls.user_key = cls._api_key(cls.user)
         cls.admin_key = cls._api_key(cls.admin)
@@ -253,3 +254,20 @@ class TestM365Controllers(HttpCase, M365Common):
         self.env.flush_all()
         self.authenticate('m365_api_internal', 'm365_api_internal')
         self.assertEqual(self._open('/m365/export/licenses').status_code, 404)
+
+    def test_export_of_mapped_administrator(self):
+        fabrikam = self.env['m365.tenant'].create({
+            'name': 'Fabrikam', 'domain': 'fabrikam.com', 'tenant_id': 'tid-fabrikam',
+            'client_id': 'cid', 'client_secret': 'secret', 'state': 'connected'})
+        self.env['m365.sku'].create({'tenant_id': fabrikam.id, 'sku_id': GUID_B,
+                                     'sku_part_number': 'VISIOCLIENT', 'enabled_units': 5})
+        self.authenticate('m365_api_admin', 'm365_api_admin')
+
+        def exported_tenants():
+            rows = csv.reader(io.StringIO(self._open('/m365/export/licenses').text))
+            return {row[0] for row in list(rows)[1:]}
+
+        # Without mapping: every tenant; with a mapping: the tenants of the dashboard
+        self.assertLessEqual({'Contoso', 'Fabrikam'}, exported_tenants())
+        map_tenants(self.admin, self.tenant)
+        self.assertEqual(exported_tenants(), {'Contoso'})

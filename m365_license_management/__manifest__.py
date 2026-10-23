@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.3.0',
+    'version': '19.0.1.4.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment and audit via Microsoft Graph',
@@ -23,6 +23,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 * Per-user live license details, usage location update (PATCH /users/{id})
 * Near real-time sync: Graph delta queries + change notification webhook
 * Audit log of every successful and failed operation
+* User tenant mapping: users only see the records of the tenants assigned to them
 * Scheduled synchronisation and low-availability notifications
 * Dashboard: totals, utilisation by product, distribution, tenant comparison
     """,
@@ -46,6 +47,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/m365_audit_log_views.xml',
         'views/m365_snapshot_views.xml',
         'views/m365_dashboard_views.xml',
+        'views/m365_user_tenant_mapping_views.xml',
         'views/menu.xml',
     ],
     'assets': {

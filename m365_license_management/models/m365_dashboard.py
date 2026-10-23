@@ -29,7 +29,7 @@ class M365Dashboard(models.AbstractModel):
         :param date_range: comparison window in days for the trend indicators
         """
         Tenant = self.env['m365.tenant']
-        all_tenants = Tenant.search([('active', '=', True)] + Tenant._live_domain())
+        all_tenants = Tenant.search(Tenant._dashboard_domain())
         selected = all_tenants.filtered(lambda t: t.id in tenant_ids) if tenant_ids else all_tenants
         skus = self.env['m365.sku'].sudo().search([
             ('tenant_id', 'in', selected.ids), ('status', '!=', 'Deleted')])
