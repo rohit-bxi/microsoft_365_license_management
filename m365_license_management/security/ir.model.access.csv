@@ -20,3 +20,4 @@ access_m365_license_bulk_wizard,m365.license.bulk.wizard user,model_m365_license
 access_m365_license_bulk_line,m365.license.bulk.line user,model_m365_license_bulk_line,m365_license_management.group_m365_user,1,1,1,1
 access_m365_partner_account_admin,m365.partner.account admin,model_m365_partner_account,m365_license_management.group_m365_admin,1,1,1,1
 access_m365_user_tenant_mapping_admin,m365.user.tenant.mapping admin,model_m365_user_tenant_mapping,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_tenant_portal,m365.tenant portal,model_m365_tenant,m365_license_management.group_m365_portal,1,0,0,0

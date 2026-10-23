@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- My Account: card of the tenant self-service, shown to its users even without
+         tenant -->
+    <template id="portal_my_home_m365" name="Microsoft 365 Tenants" inherit_id="portal.portal_my_home"
+              customize_show="True" priority="40">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="before">
+            <t t-set="m365_portal_user" t-value="request.env.user.has_group('m365_license_management.group_m365_portal')"/>
+            <t t-set="portal_client_category_enable" t-value="portal_client_category_enable or m365_portal_user"/>
+        </xpath>
+        <div id="portal_client_category" position="inside">
+            <t t-if="m365_portal_user" t-call="portal.portal_docs_entry">
+                <t t-set="icon" t-value="'/m365_license_management/static/src/img/portal_tenants.svg'"/>
+                <t t-set="title">Microsoft 365 Tenants</t>
+                <t t-set="text">Create new tenants and connect existing ones</t>
+                <t t-set="url" t-value="'/my/m365/tenants'"/>
+                <t t-set="placeholder_count" t-value="'m365_tenant_count'"/>
+                <t t-set="config_card" t-value="True"/>
+            </t>
+        </div>
+    </template>
+
+    <template id="portal_breadcrumbs_m365" name="Portal layout: Microsoft 365 tenants"
+              inherit_id="portal.portal_breadcrumbs" priority="40">
+        <xpath expr="//ol[hasclass('o_portal_submenu')]" position="inside">
+            <li t-if="page_name == 'm365_tenants'" class="breadcrumb-item active">Microsoft 365 Tenants</li>
+            <t t-if="page_name == 'm365_tenant'">
+                <li class="breadcrumb-item"><a href="/my/m365/tenants">Microsoft 365 Tenants</a></li>
+                <li t-if="m365_tenant and m365_subpage" class="breadcrumb-item">
+                    <a t-att-href="m365_tenant._portal_url()" t-out="m365_tenant.name"/>
+                </li>
+                <li class="breadcrumb-item active" t-out="m365_subpage or m365_tenant.name"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Message of the last step (set by the controller) -->
+    <template id="portal_m365_message" name="Microsoft 365: Portal Message">
+        <div t-if="m365_message" t-attf-class="alert alert-#{m365_message[0]} alert-dismissible" role="alert">
+            <span t-out="m365_message[1]"/>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"/>
+        </div>
+    </template>
+
+    <template id="portal_m365_status" name="Microsoft 365: Tenant Status">
+        <t t-set="m365_status" t-value="tenant._portal_status()"/>
+        <span t-attf-class="badge rounded-pill text-bg-#{m365_status[1]}">
+            <i t-if="tenant._portal_busy()" class="fa fa-spinner fa-spin me-1" role="img" aria-label="In progress"/>
+            <t t-out="m365_status[0]"/>
+        </span>
+    </template>
+
+    <!-- A button of the tenant page: POST of the step, when available -->
+    <template id="portal_m365_step_button" name="Microsoft 365: Tenant Step Button">
+        <form t-if="step in m365_operations" t-att-action="tenant._portal_url('/' + step)" method="post" class="d-inline">
+            <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+            <button type="submit" t-attf-class="btn #{btn_class or 'btn-secondary'}" t-att-onclick="onclick or None">
+                <i t-if="icon" t-attf-class="fa #{icon} me-1"/><t t-out="label"/>
+            </button>
+        </form>
+    </template>
+
+    <!-- Tenants of the portal user -->
+    <template id="portal_my_m365_tenants" name="My Microsoft 365 Tenants">
+        <t t-call="portal.portal_layout">
+            <t t-set="breadcrumbs_searchbar" t-value="True"/>
+            <meta t-if="m365_busy" http-equiv="refresh" content="15"/>
+            <t t-call="portal.portal_searchbar">
+                <t t-set="title">Microsoft 365 Tenants</t>
+            </t>
+            <t t-call="m365_license_management.portal_m365_message"/>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <a href="/my/m365/tenants/new?tenant_type=existing" class="btn btn-primary">
+                    <i class="fa fa-plug me-1"/>Add Existing Tenant
+                </a>
+                <a t-if="m365_can_create_new" href="/my/m365/tenants/new?tenant_type=new" class="btn btn-primary">
+                    <i class="fa fa-plus me-1"/>Create New Tenant
+                </a>
+                <a href="/my/m365/tenants/import" class="btn btn-secondary">
+                    <i class="fa fa-upload me-1"/>Bulk Import
+                </a>
+            </div>
+            <div t-if="not tenants" class="alert alert-info" role="status">
+                <t t-if="search or filterby != 'all'">No tenant matches your search.</t>
+                <t t-else="">
+                    You have no tenant yet. Add an existing Microsoft 365 tenant with its app
+                    registration, create a new one, or import many from a CSV or Excel file.
+                </t>
+            </div>
+            <form t-else="" action="/my/m365/tenants/batch" method="post">
+                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                <t t-call="portal.portal_table">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width: 2.5rem;"><span class="visually-hidden">Select</span></th>
+                            <th>Tenant</th>
+                            <th class="d-none d-md-table-cell">Domain</th>
+                            <th class="d-none d-md-table-cell">Type</th>
+                            <th class="d-none d-md-table-cell">Last Synchronisation</th>
+                            <th class="text-end">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="tenants" t-as="tenant">
+                            <td class="text-center">
+                                <input type="checkbox" name="tenant_ids" class="form-check-input"
+                                       t-att-value="tenant.id" t-att-aria-label="tenant.name"/>
+                            </td>
+                            <td><a t-att-href="tenant._portal_url()" t-out="tenant.name"/></td>
+                            <td class="d-none d-md-table-cell" t-out="tenant.domain"/>
+                            <td class="d-none d-md-table-cell">
+                                <t t-if="tenant.tenant_type == 'new'">New</t>
+                                <t t-else="">Existing</t>
+                            </td>
+                            <td class="d-none d-md-table-cell">
+                                <span t-if="tenant.last_sync_date" t-out="tenant.last_sync_date" t-options='{"widget": "datetime"}'/>
+                            </td>
+                            <td class="text-end"><t t-call="m365_license_management.portal_m365_status"/></td>
+                        </tr>
+                    </tbody>
+                </t>
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                    <span class="text-muted small">Selected tenants:</span>
+                    <button type="submit" name="operation" value="check" class="btn btn-sm btn-secondary">Check</button>
+                    <button type="submit" name="operation" value="create" class="btn btn-sm btn-secondary"
+                            onclick="return confirm('Create the selected Ready tenants in Microsoft 365? Real tenants are created and they cannot be deleted from Odoo.')">
+                        Create in Microsoft 365
+                    </button>
+                    <button type="submit" name="operation" value="test" class="btn btn-sm btn-secondary">Test Connection</button>
+                </div>
+            </form>
+        </t>
+    </template>
+
+    <!-- One tenant: status, errors, data and the steps of its current status -->
+    <template id="portal_m365_tenant_page" name="Microsoft 365 Tenant">
+        <t t-call="portal.portal_layout">
+            <t t-set="tenant" t-value="m365_tenant"/>
+            <meta t-if="tenant._portal_busy()" http-equiv="refresh" content="15"/>
+            <t t-call="m365_license_management.portal_m365_message"/>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                <h3 class="mb-0 me-2" t-out="tenant.name"/>
+                <t t-call="m365_license_management.portal_m365_status"/>
+                <span class="badge rounded-pill text-bg-light border">
+                    <t t-if="tenant.tenant_type == 'new'">New tenant</t>
+                    <t t-else="">Existing tenant</t>
+                </span>
+            </div>
+
+            <div t-if="tenant.portal_job == 'check'" class="alert alert-info" role="status">
+                The data, the domain and the address are being checked with Microsoft. This
+                page refreshes itself.
+            </div>
+            <div t-if="tenant.portal_job == 'test'" class="alert alert-info" role="status">
+                The connection is being tested. This page refreshes itself.
+            </div>
+            <div t-if="tenant.provision_state == 'queued'" class="alert alert-info" role="status">
+                The tenant is being created in Microsoft 365. This page refreshes itself.
+            </div>
+            <div t-if="tenant.provision_error and tenant.provision_state in ('draft', 'failed') and not tenant.portal_job"
+                 class="alert alert-danger" role="alert">
+                <div class="fw-bold mb-1">
+                    <t t-if="tenant.provision_state == 'failed'">The creation in Microsoft 365 failed:</t>
+                    <t t-else="">Correct these errors, then check the tenant again:</t>
+                </div>
+                <div style="white-space: pre-line;" t-out="tenant.provision_error"/>
+            </div>
+            <div t-if="tenant.provision_state == 'failed' and tenant.pc_request_id" class="alert alert-warning" role="alert">
+                Microsoft gave no answer, so the tenant may have been created. <b>Retry</b> sends
+                the same request: Microsoft then returns the tenant it created instead of
+                creating a second one.
+            </div>
+            <div t-if="tenant.provision_state == 'ready' and not tenant.portal_job" class="alert alert-success" role="status">
+                The data, the domain and the address are valid. <b>Create in Microsoft 365</b>
+                creates the tenant and its first global administrator.
+            </div>
+            <div t-if="tenant.state == 'error' and tenant.last_error and not tenant.portal_job" class="alert alert-danger" role="alert">
+                <b>Connection error:</b> <span t-out="tenant.last_error"/>
+            </div>
+            <div t-if="tenant.state == 'connected' and m365_last_test.status == 'failed' and not tenant.portal_job"
+                 class="alert alert-warning" role="alert" t-out="m365_last_test.message"/>
+            <div t-if="tenant.tenant_type == 'new' and tenant.provision_state == 'done' and tenant.state == 'draft' and not tenant.portal_job"
+                 class="alert alert-info" role="status">
+                The tenant is created in Microsoft 365. To connect it, sign in to it with the
+                admin user below, register an app in Microsoft Entra (App registrations) with
+                the application permissions Organization.Read.All and User.Read.All and admin
+                consent, create a client secret, then use <b>Connect</b>.
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                <a t-if="'edit' in m365_operations" t-att-href="tenant._portal_url('/edit')" class="btn btn-secondary">
+                    <i class="fa fa-pencil me-1"/>Edit
+                </a>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'check'"/>
+                    <t t-set="label">Check</t>
+                    <t t-set="icon" t-value="'fa-check'"/>
+                    <t t-set="btn_class" t-value="'btn-primary' if tenant.provision_state == 'draft' else 'btn-secondary'"/>
+                </t>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'create'"/>
+                    <t t-set="label">
+                        <t t-if="tenant.provision_state == 'failed'">Retry</t>
+                        <t t-else="">Create in Microsoft 365</t>
+                    </t>
+                    <t t-set="icon" t-value="'fa-cloud-upload'"/>
+                    <t t-set="btn_class" t-value="'btn-primary'"/>
+                    <t t-set="onclick">return confirm('Create this tenant in Microsoft 365? A real tenant is created and it cannot be deleted from Odoo.')</t>
+                </t>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'reset'"/>
+                    <t t-set="label">Reset to To Check</t>
+                </t>
+                <a t-if="'connect' in m365_operations" t-att-href="tenant._portal_url('/connect')"
+                   t-attf-class="btn #{'btn-secondary' if tenant.client_id else 'btn-primary'}">
+                    <i class="fa fa-plug me-1"/>Connect
+                </a>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'test'"/>
+                    <t t-set="label">Test Connection</t>
+                    <t t-set="icon" t-value="'fa-refresh'"/>
+                    <t t-set="btn_class" t-value="'btn-secondary' if tenant.state == 'connected' else 'btn-primary'"/>
+                </t>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'remove'"/>
+                    <t t-set="label">Remove</t>
+                    <t t-set="icon" t-value="'fa-trash'"/>
+                    <t t-set="btn_class" t-value="'btn-outline-danger'"/>
+                    <t t-set="onclick">return confirm('Remove this tenant from your list?')</t>
+                </t>
+            </div>
+
+            <div t-if="'password' in m365_operations" class="alert alert-warning" role="alert">
+                <h5 class="alert-heading">Sign-in of the new tenant</h5>
+                <div>Admin user: <code t-out="tenant.admin_username"/></div>
+                <div class="mb-2">Initial password: <code t-out="tenant.admin_password"/></div>
+                <p class="small mb-2">
+                    Save the password in a safe place and sign in to change it, then remove it
+                    from Odoo.
+                </p>
+                <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'password'"/>
+                    <t t-set="label">I have saved the password</t>
+                    <t t-set="btn_class" t-value="'btn-warning'"/>
+                </t>
+            </div>
+
+            <div class="row g-4">
+                <div t-if="tenant.tenant_type == 'new'" class="col-lg-6">
+                    <h5 class="border-bottom pb-2">Customer</h5>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-5">Company</dt><dd class="col-sm-7" t-out="tenant.name"/>
+                        <dt class="col-sm-5">Domain</dt><dd class="col-sm-7" t-out="tenant.domain"/>
+                        <dt class="col-sm-5">Contact</dt>
+                        <dd class="col-sm-7">
+                            <t t-out="tenant.contact_first_name"/> <t t-out="tenant.contact_last_name"/>
+                            <div t-if="tenant.contact_email" class="text-muted" t-out="tenant.contact_email"/>
+                            <div t-if="tenant.contact_phone" class="text-muted" t-out="tenant.contact_phone"/>
+                        </dd>
+                        <dt class="col-sm-5">Address</dt>
+                        <dd class="col-sm-7">
+                            <div t-out="tenant.address_line1"/>
+                            <div t-if="tenant.address_line2" t-out="tenant.address_line2"/>
+                            <div>
+                                <t t-out="tenant.city"/> <t t-out="tenant.address_state"/> <t t-out="tenant.postal_code"/>
+                            </div>
+                            <div t-out="tenant.country_id.name"/>
+                        </dd>
+                        <t t-if="tenant.organization_registration_number">
+                            <dt class="col-sm-5">Registration Number</dt>
+                            <dd class="col-sm-7" t-out="tenant.organization_registration_number"/>
+                        </t>
+                        <dt class="col-sm-5">Culture / Language</dt>
+                        <dd class="col-sm-7"><t t-out="tenant.culture"/> / <t t-out="tenant.language"/></dd>
+                        <t t-if="tenant.provision_state == 'done'">
+                            <dt class="col-sm-5">Customer ID</dt><dd class="col-sm-7"><code t-out="tenant.customer_id"/></dd>
+                            <dt class="col-sm-5">Created On</dt>
+                            <dd class="col-sm-7" t-out="tenant.created_date" t-options='{"widget": "datetime"}'/>
+                        </t>
+                    </dl>
+                </div>
+                <div t-if="tenant.tenant_type == 'existing' or tenant.provision_state == 'done'" class="col-lg-6">
+                    <h5 class="border-bottom pb-2">Connection</h5>
+                    <dl class="row mb-0">
+                        <t t-if="tenant.tenant_type == 'existing'">
+                            <dt class="col-sm-5">Domain</dt><dd class="col-sm-7" t-out="tenant.domain"/>
+                        </t>
+                        <dt class="col-sm-5">Directory (Tenant) ID</dt>
+                        <dd class="col-sm-7"><code t-out="tenant.tenant_id"/></dd>
+                        <dt class="col-sm-5">Application (Client) ID</dt>
+                        <dd class="col-sm-7">
+                            <code t-if="tenant.client_id" t-out="tenant.client_id"/>
+                            <span t-else="" class="text-muted">Not set</span>
+                        </dd>
+                        <dt class="col-sm-5">Client Secret</dt>
+                        <dd class="col-sm-7">
+                            <t t-if="tenant.client_secret"><i class="fa fa-check text-success me-1"/>Saved</t>
+                            <span t-else="" class="text-muted">Not set</span>
+                        </dd>
+                        <t t-if="m365_last_test">
+                            <dt class="col-sm-5">Last Connection Test</dt>
+                            <dd class="col-sm-7" t-out="m365_last_test.date" t-options='{"widget": "datetime"}'/>
+                        </t>
+                        <t t-if="tenant.last_sync_date">
+                            <dt class="col-sm-5">Last Synchronisation</dt>
+                            <dd class="col-sm-7" t-out="tenant.last_sync_date" t-options='{"widget": "datetime"}'/>
+                        </t>
+                    </dl>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <!-- Fields of a section of a portal form (see _m365_render_form) -->
+    <template id="portal_m365_form_fields" name="Microsoft 365: Tenant Form Fields">
+        <div class="row">
+            <div t-foreach="fields" t-as="field" class="col-md-6 mb-3">
+                <label class="form-label" t-att-for="'m365_%s' % field['name']">
+                    <t t-out="field['label']"/><span t-if="field['required']" class="text-danger"> *</span>
+                </label>
+                <select t-if="field['type'] == 'select'" t-att-id="'m365_%s' % field['name']"
+                        t-att-name="field['name']" t-att-required="field['required'] or None"
+                        t-attf-class="form-select #{'is-invalid' if field['error'] else ''}">
+                    <option value="">Select…</option>
+                    <option t-foreach="m365_countries" t-as="country" t-att-value="country.code"
+                            t-att-selected="country.code == field['value'] or None" t-out="country.name"/>
+                </select>
+                <input t-else="" t-att-type="field['type']" t-att-id="'m365_%s' % field['name']"
+                       t-att-name="field['name']" t-att-value="field['value']"
+                       t-att-placeholder="field['placeholder'] or None"
+                       t-att-required="field['required'] or None"
+                       t-att-autocomplete="'new-password' if field['type'] == 'password' else None"
+                       t-attf-class="form-control #{'is-invalid' if field['error'] else ''}"/>
+                <div t-if="field['error']" class="invalid-feedback" t-out="field['error']"/>
+                <div t-if="field['help']" class="form-text" t-out="field['help']"/>
+            </div>
+        </div>
+    </template>
+
+    <!-- New tenant (customer data), existing tenant, or connection of a created one -->
+    <template id="portal_m365_tenant_form" name="Microsoft 365 Tenant Form">
+        <t t-call="portal.portal_layout">
+            <h3 class="mb-3" t-out="m365_subpage"/>
+            <t t-call="m365_license_management.portal_m365_message"/>
+            <p t-if="m365_form == 'new'" class="text-muted">
+                The tenant is created in Microsoft 365 with this company, contact and
+                registered address. <b>Save &amp; Check</b> checks them, the availability of
+                the domain and the address with Microsoft; you can then create the tenant.
+            </p>
+            <p t-elif="m365_form == 'existing'" class="text-muted">
+                In Microsoft Entra (App registrations) of the tenant, register an app, grant it
+                the application permissions Organization.Read.All and User.Read.All with admin
+                consent, and create a client secret. <b>Save &amp; Test Connection</b> checks
+                the access.
+            </p>
+            <t t-else="">
+                <p class="text-muted">
+                    In Microsoft Entra (App registrations) of the new tenant, register an app,
+                    grant it the application permissions Organization.Read.All and
+                    User.Read.All with admin consent, and create a client secret.
+                </p>
+                <dl class="row">
+                    <dt class="col-sm-3">Domain</dt><dd class="col-sm-9" t-out="m365_tenant.domain"/>
+                    <dt class="col-sm-3">Directory (Tenant) ID</dt>
+                    <dd class="col-sm-9"><code t-out="m365_tenant.tenant_id"/></dd>
+                </dl>
+            </t>
+            <div t-if="m365_errors" class="alert alert-danger" role="alert">
+                <ul class="mb-0">
+                    <li t-foreach="m365_errors" t-as="error" style="white-space: pre-line;" t-out="error"/>
+                </ul>
+            </div>
+            <form method="post" novalidate="novalidate">
+                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                <input t-if="not m365_tenant" type="hidden" name="tenant_type" t-att-value="m365_form"/>
+                <t t-foreach="m365_sections" t-as="section">
+                    <t t-set="fields" t-value="section[1]"/>
+                    <details t-if="section[2]" class="mb-3">
+                        <summary class="h5 mb-3" t-out="section[0]"/>
+                        <t t-call="m365_license_management.portal_m365_form_fields"/>
+                    </details>
+                    <fieldset t-else="" class="mb-2">
+                        <legend class="h5" t-out="section[0]"/>
+                        <t t-call="m365_license_management.portal_m365_form_fields"/>
+                    </fieldset>
+                </t>
+                <div t-if="m365_show_address_confirmed" class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="m365_address_confirmed"
+                           name="address_confirmed" t-att-checked="m365_values.get('address_confirmed') or None"/>
+                    <label class="form-check-label" for="m365_address_confirmed">
+                        The address is correct: use it as entered, although Microsoft could not
+                        verify it
+                    </label>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <t t-if="m365_form == 'new'">Save &amp; Check</t>
+                        <t t-else="">Save &amp; Test Connection</t>
+                    </button>
+                    <a t-att-href="m365_tenant._portal_url() if m365_tenant else '/my/m365/tenants'" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </t>
+    </template>
+
+    <!-- Bulk import: upload, rows with their errors, then import (all rows or none) -->
+    <template id="portal_m365_tenant_import" name="Microsoft 365 Tenant Import">
+        <t t-call="portal.portal_layout">
+            <h3 class="mb-3">Bulk Import</h3>
+            <t t-call="m365_license_management.portal_m365_message"/>
+            <div t-if="m365_error" class="alert alert-danger" role="alert" style="white-space: pre-line;" t-out="m365_error"/>
+
+            <t t-if="m365_rows">
+                <h5>
+                    <t t-out="m365_filename"/>:
+                    <t t-out="len(m365_rows)"/>
+                    <t t-if="m365_type == 'new'">new tenant(s)</t>
+                    <t t-else="">existing tenant(s)</t>
+                </h5>
+                <div t-if="m365_valid" class="alert alert-success" role="status">
+                    All rows are valid. <b>Import</b> adds the tenants, then
+                    <t t-if="m365_type == 'new'">checks them with Microsoft in the background.</t>
+                    <t t-else="">tests their connection in the background.</t>
+                </div>
+                <div t-else="" class="alert alert-danger" role="alert">
+                    Nothing is imported until every row is valid. Correct the rows with errors
+                    in your file and upload it again.
+                </div>
+                <t t-call="portal.portal_table">
+                    <thead>
+                        <tr>
+                            <th>SN.</th>
+                            <th>Name</th>
+                            <th>Domain</th>
+                            <th t-if="m365_type == 'new'">Contact Email</th>
+                            <th t-else="">Directory (Tenant) ID</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="m365_rows" t-as="row" t-att-class="'table-danger' if row['errors'] else None">
+                            <td t-out="row['sn']"/>
+                            <td t-out="row['raw'].get('name')"/>
+                            <td t-out="row['raw'].get('domain')"/>
+                            <td t-out="row['raw'].get('contact_email' if m365_type == 'new' else 'tenant_id')"/>
+                            <td>
+                                <span t-if="not row['errors']" class="badge rounded-pill text-bg-success">Valid</span>
+                                <ul t-else="" class="mb-0 ps-3 small">
+                                    <li t-foreach="row['errors']" t-as="error" t-out="error"/>
+                                </ul>
+                            </td>
+                        </tr>
+                    </tbody>
+                </t>
+                <form t-if="m365_valid" action="/my/m365/tenants/import/submit" method="post" class="mt-3">
+                    <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa fa-check me-1"/>Import <t t-out="len(m365_rows)"/> tenant(s)
+                    </button>
+                    <a href="/my/m365/tenants/import" class="btn btn-secondary">Cancel</a>
+                </form>
+                <hr class="my-4"/>
+            </t>
+
+            <form action="/my/m365/tenants/import" method="post" enctype="multipart/form-data" class="mb-4">
+                <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                <fieldset class="mb-3">
+                    <legend class="h5">Tenants of the file</legend>
+                    <div class="form-check">
+                        <input type="radio" class="form-check-input" id="m365_type_existing" name="tenant_type"
+                               value="existing" t-att-checked="m365_type == 'existing' or None"/>
+                        <label class="form-check-label" for="m365_type_existing">
+                            Existing tenants, to connect with their app registration
+                        </label>
+                    </div>
+                    <div t-if="m365_can_create_new" class="form-check">
+                        <input type="radio" class="form-check-input" id="m365_type_new" name="tenant_type"
+                               value="new" t-att-checked="m365_type == 'new' or None"/>
+                        <label class="form-check-label" for="m365_type_new">
+                            New tenants, to create in Microsoft 365
+                        </label>
+                    </div>
+                </fieldset>
+                <div class="mb-3">
+                    <label class="form-label" for="m365_import_file">CSV or Excel (.xlsx) file</label>
+                    <input type="file" class="form-control" id="m365_import_file" name="import_file"
+                           accept=".csv,.xlsx" required="required"/>
+                    <div class="form-text">
+                        One tenant per row below a header row, 2 MB at most<t t-if="m365_max_rows">,
+                        <t t-out="m365_max_rows"/> tenants at most per file</t>. Nothing is added
+                        before you confirm the rows.
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fa fa-upload me-1"/>Upload &amp; Validate</button>
+            </form>
+
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <h5 class="border-bottom pb-2">Existing tenants</h5>
+                    <p class="small text-muted mb-2">
+                        Columns (headers are matched ignoring case and spaces; * required):
+                        <t t-foreach="m365_columns['existing']" t-as="column">
+                            <t t-out="column[0]"/><t t-if="column[1]">*</t><t t-if="not column_last">, </t>
+                        </t>.
+                        A blank client secret can be added later with <b>Connect</b>.
+                    </p>
+                    <a href="/my/m365/tenants/import/template?tenant_type=existing" class="btn btn-sm btn-link px-0">
+                        <i class="fa fa-download me-1"/>Download the template
+                    </a>
+                </div>
+                <div t-if="m365_can_create_new" class="col-lg-6">
+                    <h5 class="border-bottom pb-2">New tenants</h5>
+                    <p class="small text-muted mb-2">
+                        Columns (headers are matched ignoring case and spaces; * required):
+                        <t t-foreach="m365_columns['new']" t-as="column">
+                            <t t-out="column[0]"/><t t-if="column[1]">*</t><t t-if="not column_last">, </t>
+                        </t>.
+                        Country: ISO code or name. A domain without a dot, e.g. contoso, becomes
+                        contoso.onmicrosoft.com.
+                    </p>
+                    <a href="/my/m365/tenants/import/template?tenant_type=new" class="btn btn-sm btn-link px-0">
+                        <i class="fa fa-download me-1"/>Download the template
+                    </a>
+                </div>
+            </div>
+        </t>
+    </template>
+</odoo>

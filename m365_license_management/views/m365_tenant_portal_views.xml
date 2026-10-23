@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Tenants added by portal users (portal self-service), read only -->
+    <record id="view_m365_tenant_list_portal" model="ir.ui.view">
+        <field name="name">m365.tenant.list.portal</field>
+        <field name="model">m365.tenant</field>
+        <field name="inherit_id" ref="view_m365_tenant_list"/>
+        <field name="arch" type="xml">
+            <field name="tenant_type" position="after">
+                <field name="portal_user_id" optional="hide"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_form_portal" model="ir.ui.view">
+        <field name="name">m365.tenant.form.portal</field>
+        <field name="model">m365.tenant</field>
+        <field name="inherit_id" ref="view_m365_tenant_form"/>
+        <field name="arch" type="xml">
+            <field name="company_id" position="after">
+                <field name="portal_user_id" invisible="not portal_user_id"/>
+                <field name="portal_job" invisible="not portal_job"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_search_portal" model="ir.ui.view">
+        <field name="name">m365.tenant.search.portal</field>
+        <field name="model">m365.tenant</field>
+        <field name="inherit_id" ref="view_m365_tenant_search"/>
+        <field name="arch" type="xml">
+            <field name="tenant_id" position="after">
+                <field name="portal_user_id"/>
+            </field>
+            <filter name="filter_archived" position="before">
+                <filter name="filter_portal" string="Portal Tenants"
+                        domain="[('portal_user_id', '!=', False)]"/>
+                <separator/>
+            </filter>
+            <filter name="group_state" position="after">
+                <filter name="group_portal_user" string="Portal User"
+                        context="{'group_by': 'portal_user_id'}"/>
+            </filter>
+        </field>
+    </record>
+</odoo>
