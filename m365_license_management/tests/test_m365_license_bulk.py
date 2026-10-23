@@ -11,6 +11,7 @@ from odoo.tests import TransactionCase, new_test_user, tagged
 
 from ..models.m365_license_bulk import SAMPLE_ROWS
 from ..models.m365_tenant import M365GraphError
+from .common import map_tenants
 
 GUID_A = '11111111-2222-3333-4444-555555555555'
 TENANT_PATH = 'odoo.addons.m365_license_management.models.m365_tenant.M365Tenant._graph_request'
@@ -198,8 +199,9 @@ class TestM365LicenseBulk(TransactionCase):
         self.assertEqual(second.sku_ids, self.sku)
 
     def test_bulk_by_user_waits_for_approval(self):
-        user = new_test_user(self.env, 'm365_bulk_user',
-                             groups='m365_license_management.group_m365_user')
+        user = map_tenants(new_test_user(self.env, 'm365_bulk_user',
+                                         groups='m365_license_management.group_m365_user'),
+                           self.tenant)
         wizard = self._wizard('assign', [('bulk.com', 'user1@bulk.com', 'E3'),
                                          ('bulk.com', 'user2@bulk.com', 'E3')],
                               env=self.env(user=user))
@@ -209,6 +211,17 @@ class TestM365LicenseBulk(TransactionCase):
         self.assertEqual(wizard.submitted_count, 2)
         self.assertEqual(set(wizard.line_ids.mapped('request_id.state')), {'submitted'})
         self.assertFalse(mocked.called)
+
+    def test_bulk_by_user_only_finds_mapped_tenants(self):
+        user = map_tenants(new_test_user(self.env, 'm365_bulk_user',
+                                         groups='m365_license_management.group_m365_user'),
+                           self.tenant)
+        wizard = self._wizard('assign', [('bulk.com', 'user1@bulk.com', 'E3'),
+                                         ('other.com', 'guest@other.com', 'E3')],
+                              env=self.env(user=user))
+        wizard.action_verify()
+        self.assertEqual(wizard.line_ids.mapped('status'), ['valid', 'error'])
+        self.assertEqual(wizard.line_ids[1].message, 'Tenant "other.com" not found.')
 
     def test_pending_and_ambiguous_rows(self):
         self.env['m365.license.request'].create({

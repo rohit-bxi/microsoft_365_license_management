@@ -13,7 +13,10 @@ class M365ExportController(http.Controller):
         """CSV export of the license inventory (session authenticated)."""
         if not request.env.user.has_group('m365_license_management.group_m365_user'):
             return request.not_found()
-        domain = [('tenant_id', '=', int(tenant_id))] if (tenant_id or '').isdigit() else []
+        Tenant = request.env['m365.tenant']
+        domain = [('tenant_id', 'in', Tenant.search(Tenant._dashboard_domain()).ids)]
+        if (tenant_id or '').isdigit():
+            domain.append(('tenant_id', '=', int(tenant_id)))
         skus = request.env['m365.sku'].search(domain)
         out = io.StringIO()
         writer = csv.writer(out)

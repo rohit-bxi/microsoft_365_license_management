@@ -204,6 +204,20 @@
                                 </group>
                             </group>
                         </page>
+                        <page string="Users with Access" name="access"
+                              groups="m365_license_management.group_m365_admin">
+                            <field name="user_mapping_ids" readonly="1">
+                                <list>
+                                    <field name="user_id"/>
+                                    <field name="tenant_count"/>
+                                </list>
+                            </field>
+                            <div class="alert alert-info" role="alert">
+                                Microsoft 365 users only see the tenants mapped to them in
+                                <i>Configuration › User Tenant Mapping</i>. Administrators see
+                                every tenant.
+                            </div>
+                        </page>
                         <page string="Live Sync" name="live_sync" invisible="tenant_type == 'new' and provision_state != 'done'"
                               groups="m365_license_management.group_m365_admin">
                             <group>
