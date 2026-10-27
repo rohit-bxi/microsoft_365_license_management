@@ -4,7 +4,10 @@ from . import m365_product
 from . import m365_tenant
 from . import m365_tenant_graph
 from . import m365_tenant_live
-from . import m365_user_tenant_mapping
+from . import customer_customer
+from . import customer_portal_wizard
+from . import m365_user_customer_mapping
+from . import customer_tenant_mapping
 from . import m365_partner_account
 from . import m365_tenant_creation
 from . import m365_file_import

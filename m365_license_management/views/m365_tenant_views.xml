@@ -8,6 +8,7 @@
                 <field name="sequence" widget="handle"/>
                 <field name="name"/>
                 <field name="domain"/>
+                <field name="tenant_customer_id" optional="show"/>
                 <field name="tenant_type" optional="show"/>
                 <field name="tenant_id" optional="hide"/>
                 <field name="total_licenses"/>
@@ -116,6 +117,7 @@
                             <field name="tenant_type" widget="radio" options="{'horizontal': true}"
                                    readonly="state != 'draft' or provision_state in ('queued', 'done')"/>
                             <field name="domain" readonly="provision_state == 'queued'"/>
+                            <field name="tenant_customer_id" options="{'no_create': True}"/>
                             <field name="company_id" groups="base.group_multi_company"/>
                             <field name="active" invisible="1"/>
                         </group>
@@ -206,16 +208,17 @@
                         </page>
                         <page string="Users with Access" name="access"
                               groups="m365_license_management.group_m365_admin">
-                            <field name="user_mapping_ids" readonly="1">
+                            <field name="customer_user_mapping_ids" readonly="1">
                                 <list>
                                     <field name="user_id"/>
-                                    <field name="tenant_count"/>
+                                    <field name="customer_count"/>
                                 </list>
                             </field>
                             <div class="alert alert-info" role="alert">
-                                Microsoft 365 users only see the tenants mapped to them in
-                                <i>Configuration › User Tenant Mapping</i>. Administrators see
-                                every tenant.
+                                Microsoft 365 users only see the tenants of the customers
+                                mapped to them in
+                                <i>Configuration › User Customer Mapping</i>. Administrators
+                                see every tenant.
                             </div>
                         </page>
                         <page string="Live Sync" name="live_sync" invisible="tenant_type == 'new' and provision_state != 'done'"
@@ -315,6 +318,7 @@
                 <field name="name"/>
                 <field name="domain"/>
                 <field name="tenant_id"/>
+                <field name="tenant_customer_id"/>
                 <filter name="filter_connected" string="Connected" domain="[('state', '=', 'connected')]"/>
                 <filter name="filter_error" string="Connection Error" domain="[('state', '=', 'error')]"/>
                 <separator/>
@@ -327,6 +331,8 @@
                 <group>
                     <filter name="group_type" string="Type" context="{'group_by': 'tenant_type'}"/>
                     <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_customer" string="Customer"
+                            context="{'group_by': 'tenant_customer_id'}"/>
                 </group>
             </search>
         </field>

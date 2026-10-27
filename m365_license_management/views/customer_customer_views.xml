@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_customer_customer_kanban" model="ir.ui.view">
+        <field name="name">customer.customer.kanban</field>
+        <field name="model">customer.customer</field>
+        <field name="arch" type="xml">
+            <kanban sample="1">
+                <field name="avatar_128"/>
+                <field name="active"/>
+                <templates>
+                    <t t-name="card" class="flex-row">
+                        <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                                invisible="active"/>
+                        <aside class="o_kanban_aside_full">
+                            <field name="avatar_128" class="w-100 h-auto m-0" widget="image"
+                                   options="{'img_class': 'object-fit-contain w-100 h-100'}"/>
+                        </aside>
+                        <main class="ps-2">
+                            <div class="mb-1">
+                                <field name="display_name" class="mb-0 fw-bold fs-5"/>
+                            </div>
+                            <div t-if="record.function.raw_value" class="text-truncate">
+                                <i class="fa fa-fw me-1 fa-suitcase text-primary" title="Position"/>
+                                <field name="function"/>
+                            </div>
+                            <div t-if="record.email.raw_value" class="text-truncate">
+                                <i class="fa fa-fw me-1 fa-envelope text-primary" title="Email"/>
+                                <field name="email"/>
+                            </div>
+                            <div t-if="record.phone.raw_value">
+                                <i class="fa fa-fw me-1 fa-phone text-primary" title="Phone"/>
+                                <field name="phone"/>
+                            </div>
+                            <div t-if="record.city.raw_value or record.country_id.raw_value">
+                                <i class="fa fa-fw me-1 fa-map-marker text-primary" title="Location"/>
+                                <field name="city"/>
+                                <span t-if="record.city.raw_value and record.country_id.raw_value">, </span>
+                                <field name="country_id"/>
+                            </div>
+                            <footer t-if="record.tenant_count.raw_value">
+                                <span class="badge rounded-pill text-bg-info">
+                                    <i class="fa fa-building me-1" title="Tenants"/>
+                                    <field name="tenant_count"/> Tenant(s)
+                                </span>
+                            </footer>
+                        </main>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_customer_customer_list" model="ir.ui.view">
+        <field name="name">customer.customer.list</field>
+        <field name="model">customer.customer</field>
+        <field name="arch" type="xml">
+            <list string="Tenant Customers" sample="1">
+                <field name="avatar_128" widget="image" nolabel="1" width="30"
+                       options="{'size': [24, 24], 'img_class': 'o_avatar rounded'}"/>
+                <field name="display_name" string="Name"/>
+                <field name="vat" optional="hide"/>
+                <field name="email" optional="show"/>
+                <field name="phone" optional="show"/>
+                <field name="user_id" widget="many2one_avatar_user" optional="hide"/>
+                <field name="street" optional="hide"/>
+                <field name="city" optional="hide"/>
+                <field name="state_id" optional="hide"/>
+                <field name="country_id" optional="show"/>
+                <field name="category_ids" widget="many2many_tags" optional="hide"
+                       options="{'color_field': 'color'}"/>
+                <field name="tenant_count" string="Tenants" optional="show"/>
+                <field name="portal_user_id" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_customer_customer_form" model="ir.ui.view">
+        <field name="name">customer.customer.form</field>
+        <field name="model">customer.customer</field>
+        <field name="arch" type="xml">
+            <form string="Tenant Customer">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_tenants" type="object" class="oe_stat_button"
+                                icon="fa-building">
+                            <field name="tenant_count" widget="statinfo" string="Tenants"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="mb8">
+                        <div class="d-flex gap-3">
+                            <field name="image_1920" widget="contact_image"
+                                   options="{'preview_image': 'avatar_128', 'size': [130, 130], 'img_class': 'rounded border'}"/>
+                            <field name="avatar_128" invisible="1"/>
+                            <div class="d-flex flex-column flex-grow-1">
+                                <h1 class="mb-0 w-md-75">
+                                    <field name="name" widget="text" class="text-break d-block"
+                                           options="{'line_breaks': False}" default_focus="1"
+                                           placeholder="e.g. Contoso Ltd"/>
+                                </h1>
+                                <div class="d-flex align-items-baseline w-md-50">
+                                    <i class="fa fa-fw me-1 fa-envelope text-primary" title="Email"/>
+                                    <field name="email" class="w-100" widget="email"
+                                           placeholder="Email"/>
+                                </div>
+                                <div class="d-flex align-items-baseline w-md-50">
+                                    <i class="fa fa-fw me-1 fa-phone text-primary" title="Phone"/>
+                                    <field name="phone" class="w-100" widget="phone"
+                                           placeholder="Phone"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="parent_id" string="Company" placeholder="Company Name..."/>
+                            <span class="o_form_label o_td_label" name="address_name">
+                                <b>Address</b>
+                            </span>
+                            <div class="o_address_format">
+                                <field name="street" placeholder="Street..." class="o_address_street"/>
+                                <field name="street2" placeholder="Street 2..." class="o_address_street"/>
+                                <field name="city" placeholder="City" class="o_address_city"/>
+                                <field name="state_id" placeholder="State" class="o_address_state"
+                                       options="{'no_open': True, 'no_quick_create': True}"
+                                       context="{'country_id': country_id, 'default_country_id': country_id}"/>
+                                <field name="zip" placeholder="ZIP" class="o_address_zip"/>
+                                <field name="country_id" placeholder="Country" class="o_address_country"
+                                       options="{'no_open': True, 'no_create': True}"/>
+                            </div>
+                        </group>
+                        <group>
+                            <field name="function" placeholder="e.g. Sales Director"/>
+                            <field name="vat" placeholder="e.g. BE0477472701"/>
+                            <field name="website" widget="url" placeholder="e.g. https://www.contoso.com"/>
+                            <field name="lang"/>
+                            <field name="category_ids" widget="many2many_tags"
+                                   options="{'color_field': 'color'}"
+                                   placeholder='e.g. "Enterprise", "SMB", "Education", ...'/>
+                        </group>
+                    </group>
+                    <!-- Adds existing tenants (many2many widget): the cross unlinks the tenant -->
+                    <separator string="Tenants" invisible="parent_id"/>
+                    <field name="tenant_ids" nolabel="1" widget="many2many" invisible="parent_id"
+                           options="{'no_create': True}"
+                           domain="[('tenant_customer_id', '=', False)]">
+                        <list>
+                            <field name="name"/>
+                            <field name="domain"/>
+                            <field name="tenant_type"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'connected'"
+                                   decoration-danger="state == 'error'"/>
+                        </list>
+                    </field>
+                    <notebook>
+                        <page string="Contacts" name="contacts">
+                            <field name="child_ids" mode="kanban"
+                                   context="{'default_parent_id': id, 'default_street': street, 'default_street2': street2, 'default_city': city, 'default_state_id': state_id, 'default_zip': zip, 'default_country_id': country_id, 'default_lang': lang, 'default_user_id': user_id, 'default_company_id': company_id}">
+                                <kanban>
+                                    <templates>
+                                        <t t-name="card" class="flex-row">
+                                            <aside class="o_kanban_aside_full">
+                                                <field name="avatar_128" class="o_kanban_image_fill w-100"
+                                                       widget="image" alt="Contact image"
+                                                       options="{'img_class': 'object-fit-cover'}"/>
+                                            </aside>
+                                            <main class="ps-2 ps-md-0">
+                                                <field name="name" class="fw-bold"/>
+                                                <div t-if="record.function.raw_value">
+                                                    <i class="fa fa-fw me-1 fa-suitcase text-primary" title="Position"/>
+                                                    <field name="function"/>
+                                                </div>
+                                                <div t-if="record.email.raw_value" class="text-truncate">
+                                                    <i class="fa fa-fw me-1 fa-envelope text-primary" title="Email"/>
+                                                    <field name="email"/>
+                                                </div>
+                                                <div t-if="record.phone.raw_value">
+                                                    <i class="fa fa-fw me-1 fa-phone text-primary" title="Phone"/>
+                                                    <field name="phone"/>
+                                                </div>
+                                            </main>
+                                        </t>
+                                    </templates>
+                                </kanban>
+                                <form string="Contact">
+                                    <sheet>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <field name="image_1920" widget="contact_image" nolabel="1"
+                                                   options="{'preview_image': 'avatar_128', 'size': [100, 100], 'img_class': 'rounded border'}"/>
+                                            <field name="avatar_128" invisible="1"/>
+                                            <div class="flex-grow-1">
+                                                <h3>
+                                                    <field name="name" class="d-block" default_focus="1"
+                                                           placeholder="e.g. Megan Bowen"/>
+                                                </h3>
+                                                <div class="row flex-row">
+                                                    <div class="d-flex align-items-baseline">
+                                                        <i class="fa fa-fw me-1 fa-envelope text-primary" title="Email"/>
+                                                        <field name="email" widget="email" class="w-100" placeholder="Email"/>
+                                                    </div>
+                                                    <div class="d-flex align-items-baseline">
+                                                        <i class="fa fa-fw me-1 fa-phone text-primary" title="Phone"/>
+                                                        <field name="phone" widget="phone" class="w-100" placeholder="Phone"/>
+                                                    </div>
+                                                    <div class="d-flex align-items-baseline">
+                                                        <i class="fa fa-fw me-1 fa-suitcase text-primary" title="Position"/>
+                                                        <field name="function" placeholder="Job title"/>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <group>
+                                            <group>
+                                                <span class="o_form_label o_td_label">
+                                                    <b>Address</b>
+                                                </span>
+                                                <div class="o_address_format">
+                                                    <field name="street" placeholder="Street..." class="o_address_street"/>
+                                                    <field name="street2" placeholder="Street 2..." class="o_address_street"/>
+                                                    <field name="city" placeholder="City" class="o_address_city"/>
+                                                    <field name="state_id" placeholder="State" class="o_address_state"
+                                                           options="{'no_open': True, 'no_quick_create': True}"
+                                                           context="{'country_id': country_id, 'default_country_id': country_id}"/>
+                                                    <field name="zip" placeholder="ZIP" class="o_address_zip"/>
+                                                    <field name="country_id" placeholder="Country" class="o_address_country"
+                                                           options="{'no_open': True, 'no_create': True}"/>
+                                                </div>
+                                            </group>
+                                        </group>
+                                        <group>
+                                            <!-- Saved from the company, cf. context of child_ids -->
+                                            <field name="company_id" invisible="1"/>
+                                            <field name="lang" invisible="1"/>
+                                            <field name="user_id" invisible="1"/>
+                                            <label for="comment"/>
+                                            <field name="comment" nolabel="1" options="{'height': 100}"
+                                                   placeholder="Internal notes..."/>
+                                        </group>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Sales &amp; Purchase" name="sales_purchases">
+                            <group>
+                                <group string="Sales" name="sale">
+                                    <field name="user_id" widget="many2one_avatar_user"/>
+                                </group>
+                                <group string="Misc" name="misc">
+                                    <field name="company_registry"/>
+                                    <field name="ref"/>
+                                    <field name="company_id" groups="base.group_multi_company"
+                                           options="{'no_create': True}" placeholder="Visible to all"/>
+                                    <field name="industry_id" options="{'no_create': True}"/>
+                                    <field name="portal_user_id" invisible="not portal_user_id"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Notes" name="internal_notes">
+                            <field name="comment" placeholder="Internal notes..."/>
+                        </page>
+                        <page string="Users with Access" name="access" invisible="parent_id"
+                              groups="m365_license_management.group_m365_admin">
+                            <field name="user_mapping_ids" readonly="1">
+                                <list>
+                                    <field name="user_id"/>
+                                    <field name="customer_count"/>
+                                </list>
+                            </field>
+                            <div class="alert alert-info" role="alert">
+                                Microsoft 365 users only see the customers mapped to them in
+                                <i>Configuration › User Customer Mapping</i>. Administrators see
+                                every customer.
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_customer_customer_search" model="ir.ui.view">
+        <field name="name">customer.customer.search</field>
+        <field name="model">customer.customer</field>
+        <field name="arch" type="xml">
+            <search string="Tenant Customers">
+                <field name="name"
+                       filter_domain="['|', '|', '|', ('name', 'ilike', self), ('ref', 'ilike', self), ('email', 'ilike', self), ('vat', 'ilike', self)]"/>
+                <field name="parent_id" operator="child_of"/>
+                <field name="email" filter_domain="[('email', 'ilike', self)]"/>
+                <field name="phone"/>
+                <field name="vat"/>
+                <field name="category_ids" string="Tag"/>
+                <field name="user_id"/>
+                <field name="country_id"/>
+                <field name="tenant_ids" string="Tenant"/>
+                <filter name="my_customers" string="My Customers"
+                        domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="filter_with_tenant" string="With Tenant"
+                        domain="[('tenant_ids', '!=', False)]"/>
+                <filter name="filter_no_tenant" string="Without Tenant"
+                        domain="[('tenant_ids', '=', False)]"/>
+                <separator/>
+                <filter name="filter_portal" string="Portal Access"
+                        domain="[('portal_user_id.active', '=', True)]"/>
+                <separator/>
+                <filter name="inactive" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_company" string="Company" context="{'group_by': 'parent_id'}"/>
+                    <filter name="group_salesperson" string="Salesperson"
+                            context="{'group_by': 'user_id'}"/>
+                    <filter name="group_country" string="Country" context="{'group_by': 'country_id'}"/>
+                    <filter name="group_state" string="State" context="{'group_by': 'state_id'}"/>
+                    <filter name="group_industry" string="Industry"
+                            context="{'group_by': 'industry_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_customer_customer" model="ir.actions.act_window">
+        <field name="name">Tenant Customers</field>
+        <field name="res_model">customer.customer</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_customer_customer_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create the customer of a Microsoft 365 tenant</p>
+            <p>Companies with their contacts, address and tax ID. Select the customer on the
+               tenant to see its tenants here.</p>
+        </field>
+    </record>
+</odoo>

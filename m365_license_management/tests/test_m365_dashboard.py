@@ -5,7 +5,7 @@ from odoo import fields
 from odoo.tests import new_test_user, tagged
 
 from ..models.m365_dashboard import _delta, _pct
-from .common import GUID_B, USER_GROUP, M365Common, map_tenants
+from .common import GUID_B, USER_GROUP, M365Common, map_customers, map_tenants
 
 GUID_C = 'cccccccc-0000-0000-0000-000000000001'
 
@@ -23,6 +23,28 @@ class TestM365Dashboard(M365Common):
         # No history to compare with
         self.assertIsNone(_delta(5, None))
         self.assertIsNone(_delta(5, 0))
+
+    def test_customer_filter(self):
+        self.env['m365.tenant'].create({
+            'name': 'Fabrikam', 'domain': 'fabrikam.com', 'tenant_id': 'tid-fabrikam',
+            'client_id': 'cid', 'client_secret': 'secret', 'state': 'connected'})
+        customer = self.env['customer.customer'].create({'name': 'Contoso Ltd'})
+        self.tenant.tenant_customer_id = customer
+        Dashboard = self.env['m365.dashboard']
+        data = Dashboard.get_dashboard_data()
+        self.assertIn({'id': customer.id, 'name': 'Contoso Ltd'}, data['customers'])
+        self.assertLessEqual({'Contoso', 'Fabrikam'}, {row['name'] for row in data['tenants']})
+        # The tenants of the customer only; the customer list stays complete
+        data = Dashboard.get_dashboard_data(customer_id=customer.id)
+        self.assertEqual([row['name'] for row in data['tenants']], ['Contoso'])
+        self.assertEqual(data['kpis']['total'], 10)
+        self.assertIn({'id': customer.id, 'name': 'Contoso Ltd'}, data['customers'])
+        # A user mapped to the customer
+        user = new_test_user(self.env, 'm365_dashboard_customer', groups=USER_GROUP)
+        map_customers(user, customer)
+        data = Dashboard.with_user(user).get_dashboard_data(customer_id=customer.id)
+        self.assertEqual(data['customers'], [{'id': customer.id, 'name': 'Contoso Ltd'}])
+        self.assertEqual([row['name'] for row in data['tenants']], ['Contoso'])
 
     def test_kpis_trend_and_forecast(self):
         now = fields.Datetime.now()

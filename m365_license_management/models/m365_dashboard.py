@@ -22,14 +22,18 @@ class M365Dashboard(models.AbstractModel):
     _description = 'Microsoft 365 License Dashboard Backend'
 
     @api.model
-    def get_dashboard_data(self, tenant_ids=None, date_range=30):
+    def get_dashboard_data(self, tenant_ids=None, date_range=30, customer_id=None):
         """Aggregate figures for the OWL dashboard.
 
         :param tenant_ids: restrict to these tenants (None = all accessible)
         :param date_range: comparison window in days for the trend indicators
+        :param customer_id: restrict to the tenants of this customer (customer.customer)
         """
         Tenant = self.env['m365.tenant']
-        all_tenants = Tenant.search(Tenant._dashboard_domain())
+        accessible = Tenant.search(Tenant._dashboard_domain())
+        customer_id = int(customer_id or 0)
+        all_tenants = (accessible.filtered(lambda t: t.tenant_customer_id.id == customer_id)
+                       if customer_id else accessible)
         selected = all_tenants.filtered(lambda t: t.id in tenant_ids) if tenant_ids else all_tenants
         skus = self.env['m365.sku'].sudo().search([
             ('tenant_id', 'in', selected.ids), ('status', '!=', 'Deleted')])
@@ -116,6 +120,7 @@ class M365Dashboard(models.AbstractModel):
             'activity': self._get_activity(selected),
             'waste': self._get_waste(selected),
             'tenants': tenant_rows,
+            'customers': self._get_customers(accessible),
             'kpis': {
                 'total': total,
                 'assigned': assigned,
@@ -130,6 +135,16 @@ class M365Dashboard(models.AbstractModel):
             'last_updated': fields.Datetime.to_string(max(syncs)) if syncs else False,
             'is_admin': self.env.user.has_group('m365_license_management.group_m365_admin'),
         }
+
+    @api.model
+    def _get_customers(self, tenants):
+        """Customers of the dashboard tenants, for the customer filter.
+
+        Their name only, as on the tenant form: also for the customers the user does not
+        see (tenants mapped to the user directly).
+        """
+        customers = tenants.tenant_customer_id.sudo().sorted('name')
+        return [{'id': customer.id, 'name': customer.name} for customer in customers]
 
     # ------------------------------------------------------------------
     # Advanced analytics

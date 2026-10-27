@@ -64,6 +64,16 @@
                             <div t-if="!state.data.tenants.length" class="m365d-empty">No tenants configured yet. Open Settings to add one.</div>
                         </div>
                         <label class="m365d-range">
+                            <small>Customer</small>
+                            <select class="m365d-select" t-on-change="onCustomer">
+                                <option value="" t-att-selected="!state.customerId">All customers</option>
+                                <option t-foreach="state.data.customers" t-as="c" t-key="c.id"
+                                        t-att-value="c.id" t-att-selected="state.customerId == c.id">
+                                    <t t-out="c.name"/>
+                                </option>
+                            </select>
+                        </label>
+                        <label class="m365d-range">
                             <small>Date range</small>
                             <select class="m365d-select" t-on-change="onDateRange">
                                 <option value="7" t-att-selected="state.dateRange == 7">Last 7 days</option>

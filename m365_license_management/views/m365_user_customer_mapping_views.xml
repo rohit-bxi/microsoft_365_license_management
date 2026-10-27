@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_user_customer_mapping_list" model="ir.ui.view">
+        <field name="name">m365.user.customer.mapping.list</field>
+        <field name="model">m365.user.customer.mapping</field>
+        <field name="arch" type="xml">
+            <list string="User Customer Mapping">
+                <field name="user_id"/>
+                <field name="customer_ids" widget="many2many_tags"/>
+                <field name="customer_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_user_customer_mapping_form" model="ir.ui.view">
+        <field name="name">m365.user.customer.mapping.form</field>
+        <field name="model">m365.user.customer.mapping</field>
+        <field name="arch" type="xml">
+            <form string="User Customer Mapping">
+                <sheet>
+                    <group>
+                        <field name="user_id" options="{'no_create': True}"/>
+                    </group>
+                    <separator string="Customers"/>
+                    <field name="customer_ids" nolabel="1" options="{'no_create': True}">
+                        <list>
+                            <field name="name"/>
+                            <field name="email"/>
+                            <field name="phone"/>
+                            <field name="country_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="tenant_count" string="Tenants"/>
+                        </list>
+                    </field>
+                    <div class="alert alert-info mt-3" role="alert">
+                        The user sees these customers and their contacts only, and the
+                        tenants of these customers with their subscriptions, users, license
+                        requests and audit logs. A user without mapping sees no customer and no
+                        tenant.
+                        Microsoft 365 administrators see every customer and tenant.
+                    </div>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_user_customer_mapping_search" model="ir.ui.view">
+        <field name="name">m365.user.customer.mapping.search</field>
+        <field name="model">m365.user.customer.mapping</field>
+        <field name="arch" type="xml">
+            <search string="User Customer Mapping">
+                <field name="user_id"/>
+                <field name="customer_ids"/>
+                <filter name="filter_no_customer" string="Without Customer"
+                        domain="[('customer_ids', '=', False)]"/>
+                <group>
+                    <filter name="group_customer" string="Customer"
+                            context="{'group_by': 'customer_ids'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_user_customer_mapping" model="ir.actions.act_window">
+        <field name="name">User Customer Mapping</field>
+        <field name="res_model">m365.user.customer.mapping</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Map a user to the customers they can see</p>
+            <p>Microsoft 365 users only see the customers mapped to them and the tenants of
+               these customers. Administrators see every customer.</p>
+        </field>
+    </record>
+</odoo>
