@@ -7,7 +7,8 @@ MENUS = ['menu_m365_dashboard', 'menu_m365_inventory', 'menu_m365_users',
          'menu_m365_requests', 'menu_m365_audit']
 CONFIG_MENUS = ['menu_m365_config', 'menu_m365_tenants_root', 'menu_m365_tenants',
                 'menu_m365_tenants_import', 'menu_m365_partner_account',
-                'menu_m365_user_tenant_mapping', 'menu_m365_products',
+                'menu_m365_user_customer_mapping', 'menu_customer_tenant_mapping',
+                'menu_customer_customer', 'menu_m365_products',
                 'menu_m365_snapshots']
 
 

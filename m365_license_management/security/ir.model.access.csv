@@ -19,5 +19,12 @@ access_m365_tenant_import_line,m365.tenant.import.line admin,model_m365_tenant_i
 access_m365_license_bulk_wizard,m365.license.bulk.wizard user,model_m365_license_bulk_wizard,m365_license_management.group_m365_user,1,1,1,1
 access_m365_license_bulk_line,m365.license.bulk.line user,model_m365_license_bulk_line,m365_license_management.group_m365_user,1,1,1,1
 access_m365_partner_account_admin,m365.partner.account admin,model_m365_partner_account,m365_license_management.group_m365_admin,1,1,1,1
-access_m365_user_tenant_mapping_admin,m365.user.tenant.mapping admin,model_m365_user_tenant_mapping,m365_license_management.group_m365_admin,1,1,1,1
 access_m365_tenant_portal,m365.tenant portal,model_m365_tenant,m365_license_management.group_m365_portal,1,0,0,0
+access_customer_customer_user,customer.customer user,model_customer_customer,m365_license_management.group_m365_user,1,0,0,0
+access_customer_customer_admin,customer.customer admin,model_customer_customer,m365_license_management.group_m365_admin,1,1,1,1
+access_customer_tag_user,customer.tag user,model_customer_tag,m365_license_management.group_m365_user,1,0,0,0
+access_customer_tag_admin,customer.tag admin,model_customer_tag,m365_license_management.group_m365_admin,1,1,1,1
+access_customer_portal_wizard,customer.portal.wizard admin,model_customer_portal_wizard,m365_license_management.group_m365_admin,1,1,1,1
+access_customer_portal_wizard_user,customer.portal.wizard.user admin,model_customer_portal_wizard_user,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_user_customer_mapping_admin,m365.user.customer.mapping admin,model_m365_user_customer_mapping,m365_license_management.group_m365_admin,1,1,1,1
+access_customer_tenant_mapping_admin,customer.tenant.mapping admin,model_customer_tenant_mapping,m365_license_management.group_m365_admin,1,1,1,1

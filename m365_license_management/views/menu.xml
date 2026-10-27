@@ -27,10 +27,14 @@
     <menuitem id="menu_m365_partner_account" name="Partner Center Account"
               parent="menu_m365_tenants_root" action="action_m365_partner_account"
               sequence="3"/>
-    <menuitem id="menu_m365_user_tenant_mapping" name="User Tenant Mapping"
-              parent="menu_m365_config" action="action_m365_user_tenant_mapping" sequence="2"/>
+    <menuitem id="menu_m365_user_customer_mapping" name="User Customer Mapping"
+              parent="menu_m365_config" action="action_m365_user_customer_mapping" sequence="3"/>
+    <menuitem id="menu_customer_tenant_mapping" name="Customer Tenants Mapping"
+              parent="menu_m365_config" action="action_customer_tenant_mapping" sequence="4"/>
+    <menuitem id="menu_customer_customer" name="Tenant Customers" parent="menu_m365_config"
+              action="action_customer_customer" sequence="5"/>
     <menuitem id="menu_m365_products" name="Product Catalogue" parent="menu_m365_config"
-              action="action_m365_product" sequence="3"/>
+              action="action_m365_product" sequence="6"/>
     <menuitem id="menu_m365_snapshots" name="Inventory History" parent="menu_m365_config"
-              action="action_m365_snapshot" sequence="4"/>
+              action="action_m365_snapshot" sequence="7"/>
 </odoo>

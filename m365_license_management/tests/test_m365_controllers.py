@@ -261,13 +261,18 @@ class TestM365Controllers(HttpCase, M365Common):
             'client_id': 'cid', 'client_secret': 'secret', 'state': 'connected'})
         self.env['m365.sku'].create({'tenant_id': fabrikam.id, 'sku_id': GUID_B,
                                      'sku_part_number': 'VISIOCLIENT', 'enabled_units': 5})
+        fabrikam.tenant_customer_id = self.env['customer.customer'].create(
+            {'name': 'Fabrikam Inc'})
         self.authenticate('m365_api_admin', 'm365_api_admin')
 
-        def exported_tenants():
-            rows = csv.reader(io.StringIO(self._open('/m365/export/licenses').text))
+        def exported_tenants(query=''):
+            rows = csv.reader(io.StringIO(self._open('/m365/export/licenses' + query).text))
             return {row[0] for row in list(rows)[1:]}
 
         # Without mapping: every tenant; with a mapping: the tenants of the dashboard
         self.assertLessEqual({'Contoso', 'Fabrikam'}, exported_tenants())
+        # Customer filter of the dashboard
+        self.assertEqual(exported_tenants('?customer_id=%s' % fabrikam.tenant_customer_id.id),
+                         {'Fabrikam'})
         map_tenants(self.admin, self.tenant)
         self.assertEqual(exported_tenants(), {'Contoso'})

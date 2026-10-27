@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
 from unittest.mock import patch
 
-from psycopg2 import IntegrityError
-
-from odoo import Command
 from odoo.exceptions import AccessError
 from odoo.tests import new_test_user, tagged
-from odoo.tools import mute_logger
 
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_B, USER_GROUP, M365Common, graph_stub,
-                     map_tenants)
+                     map_customers, map_tenants)
 
 # Models whose records belong to a tenant
 TENANT_MODELS = ('m365.sku', 'm365.license.user', 'm365.license.request', 'm365.audit.log',
@@ -64,19 +60,6 @@ class TestM365TenantAccess(M365Common):
     def test_user_without_mapping_sees_nothing(self):
         self.assertEqual(self._visible(self.user), self._expected())
 
-    def test_user_sees_mapped_tenants(self):
-        mapping = self.env['m365.user.tenant.mapping'].create({
-            'user_id': self.user.id, 'tenant_ids': [Command.link(self.tenant.id)]})
-        self.assertEqual(mapping.display_name, self.user.name)
-        self.assertEqual(self.tenant.user_mapping_ids, mapping)
-        self.assertEqual(self._visible(self.user), self._expected('Contoso'))
-        # A change of the mapping applies at once
-        mapping.tenant_ids = [Command.link(self.fabrikam.id)]
-        self.assertEqual(mapping.tenant_count, 2)
-        self.assertEqual(self._visible(self.user), self._expected('Contoso', 'Fabrikam'))
-        mapping.unlink()
-        self.assertEqual(self._visible(self.user), self._expected())
-
     def test_administrator_sees_every_tenant(self):
         self.assertEqual(self._visible(self.admin), self._expected('Contoso', 'Fabrikam'))
 
@@ -99,6 +82,33 @@ class TestM365TenantAccess(M365Common):
         self.assertTrue(result['ok'])
         self.assertEqual({message.split(':')[0] for message in result['messages']},
                          {'Contoso'})
+
+    def test_user_sees_tenants_of_mapped_customers(self):
+        customer = self.env['customer.customer'].create({'name': 'Fabrikam Inc'})
+        self.fabrikam.tenant_customer_id = customer
+        mapping = map_customers(self.user, customer)
+        self.assertEqual(self.fabrikam.customer_user_mapping_ids, mapping)
+        self.assertEqual(self._visible(self.user), self._expected('Fabrikam'))
+        # A change of the mapping applies at once
+        map_tenants(self.user, self.tenant)
+        self.assertEqual(self._visible(self.user), self._expected('Contoso', 'Fabrikam'))
+        data = self.env(user=self.user)['m365.dashboard'].get_dashboard_data()
+        self.assertEqual(sorted(tenant['name'] for tenant in data['tenants']),
+                         ['Contoso', 'Fabrikam'])
+        # A tenant that leaves the customer is no longer seen
+        self.fabrikam.tenant_customer_id = False
+        self.assertEqual(self._visible(self.user), self._expected('Contoso'))
+        mapping.unlink()
+        self.assertEqual(self._visible(self.user), self._expected())
+
+    def test_dashboard_of_administrator_mapped_to_customers(self):
+        customer = self.env['customer.customer'].create({'name': 'Fabrikam Inc'})
+        self.fabrikam.tenant_customer_id = customer
+        map_customers(self.admin, customer)
+        data = self.env(user=self.admin)['m365.dashboard'].get_dashboard_data()
+        self.assertEqual({tenant['name'] for tenant in data['tenants']}, {'Fabrikam'})
+        # The administrator still manages every tenant outside the dashboard
+        self.assertEqual(self._visible(self.admin), self._expected('Contoso', 'Fabrikam'))
 
     def test_user_sees_own_requests_only(self):
         map_tenants(self.user, self.tenant)
@@ -129,13 +139,8 @@ class TestM365TenantAccess(M365Common):
         self.assertEqual(self._visible(self.user), self._expected('Contoso'))
         self.assertEqual(self._visible(self.admin), self._expected('Contoso'))
 
-    def test_one_mapping_per_user(self):
-        map_tenants(self.user, self.tenant)
-        with self.assertRaises(IntegrityError), mute_logger('odoo.sql_db'):
-            map_tenants(self.user, self.fabrikam)
-
     def test_only_microsoft_365_users_can_be_mapped(self):
-        Mapping = self.env['m365.user.tenant.mapping']
+        Mapping = self.env['m365.user.customer.mapping']
         internal = new_test_user(self.env, 'm365_access_internal', groups='base.group_user')
         candidates = self.env['res.users'].search(
             Mapping._fields['user_id'].get_comodel_domain(Mapping))

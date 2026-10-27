@@ -37,10 +37,24 @@ def http_response(status=200, payload=None, headers=None):
 
 
 def map_tenants(user, tenants):
-    """Let the Microsoft 365 user see these tenants (User Tenant Mapping)."""
-    tenants.env['m365.user.tenant.mapping'].create({
-        'user_id': user.id, 'tenant_ids': [Command.set(tenants.ids)]})
+    """Let the Microsoft 365 user see these tenants: map their customers to the user,
+    a tenant without customer gets its own."""
+    for tenant in tenants.filtered(lambda t: not t.tenant_customer_id):
+        tenant.tenant_customer_id = tenants.env['customer.customer'].create(
+            {'name': '%s Customer' % tenant.name})
+    mapping = tenants.env['m365.user.customer.mapping'].search([('user_id', '=', user.id)])
+    if mapping:
+        mapping.customer_ids = [Command.link(customer.id)
+                                for customer in tenants.tenant_customer_id]
+    else:
+        map_customers(user, tenants.tenant_customer_id)
     return user
+
+
+def map_customers(user, customers):
+    """Let the Microsoft 365 user see these customers and their tenants."""
+    return customers.env['m365.user.customer.mapping'].create({
+        'user_id': user.id, 'customer_ids': [Command.set(customers.ids)]})
 
 
 class M365Common(TransactionCase):

@@ -75,15 +75,22 @@
         <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
     </record>
 
-    <!-- Tenant access: users see the records of the tenants mapped to them (User Tenant
-         Mapping), administrators see every tenant. Rules of different groups are combined
-         with OR and administrators are users as well, so each user rule has an
-         administrator rule. -->
+    <record id="customer_customer_company_rule" model="ir.rule">
+        <field name="name">Tenant Customer: multi-company</field>
+        <field name="model_id" ref="model_customer_customer"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <!-- Tenant access: users see the records of the tenants of the customers mapped to
+         them (User Customer Mapping), administrators see every tenant. Rules of different
+         groups are combined with OR and administrators are users as well, so each user
+         rule has an administrator rule. -->
     <record id="m365_tenant_user_rule" model="ir.rule">
-        <field name="name">Microsoft 365 Tenant: mapped tenants</field>
+        <field name="name">Microsoft 365 Tenant: tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_tenant"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_tenant_admin_rule" model="ir.rule">
         <field name="name">Microsoft 365 Tenant: administrators see all</field>
@@ -93,10 +100,10 @@
     </record>
 
     <record id="m365_sku_user_rule" model="ir.rule">
-        <field name="name">Microsoft 365 Subscription: mapped tenants</field>
+        <field name="name">Microsoft 365 Subscription: tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_sku"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('tenant_id.user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_sku_admin_rule" model="ir.rule">
         <field name="name">Microsoft 365 Subscription: administrators see all</field>
@@ -106,10 +113,10 @@
     </record>
 
     <record id="m365_license_user_user_rule" model="ir.rule">
-        <field name="name">Microsoft 365 User: mapped tenants</field>
+        <field name="name">Microsoft 365 User: tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_license_user"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('tenant_id.user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_license_user_admin_rule" model="ir.rule">
         <field name="name">Microsoft 365 User: administrators see all</field>
@@ -119,10 +126,10 @@
     </record>
 
     <record id="m365_audit_log_user_rule" model="ir.rule">
-        <field name="name">Microsoft 365 Audit Log: mapped tenants</field>
+        <field name="name">Microsoft 365 Audit Log: tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_audit_log"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('tenant_id.user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_audit_log_admin_rule" model="ir.rule">
         <field name="name">Microsoft 365 Audit Log: administrators see all</field>
@@ -132,10 +139,10 @@
     </record>
 
     <record id="m365_snapshot_user_rule" model="ir.rule">
-        <field name="name">Microsoft 365 Inventory Snapshot: mapped tenants</field>
+        <field name="name">Microsoft 365 Inventory Snapshot: tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_inventory_snapshot"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('tenant_id.user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_snapshot_admin_rule" model="ir.rule">
         <field name="name">Microsoft 365 Inventory Snapshot: administrators see all</field>
@@ -144,13 +151,26 @@
         <field name="domain_force">[(1, '=', 1)]</field>
     </record>
 
-    <!-- Request visibility: users see their own requests of the tenants mapped to them,
-         administrators see all -->
+    <record id="customer_customer_user_rule" model="ir.rule">
+        <field name="name">Tenant Customer: mapped customers and their contacts</field>
+        <field name="model_id" ref="model_customer_customer"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">['|', ('user_mapping_ids.user_id', '=', user.id), ('parent_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="customer_customer_admin_rule" model="ir.rule">
+        <field name="name">Tenant Customer: administrators see all</field>
+        <field name="model_id" ref="model_customer_customer"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <!-- Request visibility: users see their own requests of the tenants of the customers
+         mapped to them, administrators see all -->
     <record id="m365_request_user_rule" model="ir.rule">
-        <field name="name">License Request: own requests of mapped tenants</field>
+        <field name="name">License Request: own requests of tenants of mapped customers</field>
         <field name="model_id" ref="model_m365_license_request"/>
         <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
-        <field name="domain_force">[('requested_by', '=', user.id), ('tenant_id.user_mapping_ids.user_id', '=', user.id)]</field>
+        <field name="domain_force">[('requested_by', '=', user.id), ('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
     </record>
     <record id="m365_request_admin_rule" model="ir.rule">
         <field name="name">License Request: administrators see all</field>

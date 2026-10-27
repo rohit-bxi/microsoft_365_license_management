@@ -23,6 +23,7 @@ export class M365Dashboard extends Component {
             loading: true,
             data: null,
             selected: [],
+            customerId: false,
             dateRange: 30,
             syncing: false,
             theme: browser.localStorage.getItem(THEME_KEY) || "light",
@@ -69,6 +70,7 @@ export class M365Dashboard extends Component {
             this.state.data = await this.orm.call("m365.dashboard", "get_dashboard_data", [], {
                 tenant_ids: this.state.selected,
                 date_range: this.state.dateRange,
+                customer_id: this.state.customerId,
             });
         } finally {
             this.state.loading = false;
@@ -129,6 +131,16 @@ export class M365Dashboard extends Component {
     isSelected(t) {
         return this.state.selected.includes(t.id);
     }
+    async onCustomer(ev) {
+        this.state.customerId = parseInt(ev.target.value, 10) || false;
+        // The tenants of the other customers are no longer shown
+        this.state.selected.splice(0);
+        this.state.page = 0;
+        Object.assign(this.state.form, { tenantId: "", user: null, userQuery: "", skuId: "" });
+        this.state.userResults = [];
+        this.state.skus = [];
+        await this.load();
+    }
     async onDateRange(ev) {
         this.state.dateRange = parseInt(ev.target.value, 10);
         await this.load();
@@ -156,7 +168,14 @@ export class M365Dashboard extends Component {
     }
     exportCsv() {
         const sel = this.state.selected;
-        const q = sel.length === 1 ? `?tenant_id=${sel[0]}` : "";
+        const params = new URLSearchParams();
+        if (sel.length === 1) {
+            params.set("tenant_id", sel[0]);
+        }
+        if (this.state.customerId) {
+            params.set("customer_id", this.state.customerId);
+        }
+        const q = params.toString() ? `?${params}` : "";
         browser.open(`/m365/export/licenses${q}`, "_blank");
     }
     onAlertClick(a) {

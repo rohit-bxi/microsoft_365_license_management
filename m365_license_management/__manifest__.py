@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.5.0',
+    'version': '19.0.1.6.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment and audit via Microsoft Graph',
@@ -23,7 +23,11 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 * Per-user live license details, usage location update (PATCH /users/{id})
 * Near real-time sync: Graph delta queries + change notification webhook
 * Audit log of every successful and failed operation
-* User tenant mapping: users only see the records of the tenants assigned to them
+* User customer mapping: users only see the tenant customers assigned to them, and the
+  records of their tenants
+* Customer tenants mapping: the tenants of each tenant customer
+* Tenant customers: customer master (companies, contacts, address, tax ID) linked to
+  the tenants, independent of the Odoo contacts, with portal access
 * Scheduled synchronisation and low-availability notifications
 * Dashboard: totals, utilisation by product, distribution, tenant comparison
 * Portal self-service: portal users create new tenants and connect existing
@@ -51,7 +55,10 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/m365_audit_log_views.xml',
         'views/m365_snapshot_views.xml',
         'views/m365_dashboard_views.xml',
-        'views/m365_user_tenant_mapping_views.xml',
+        'views/customer_customer_views.xml',
+        'views/customer_portal_wizard_views.xml',
+        'views/m365_user_customer_mapping_views.xml',
+        'views/customer_tenant_mapping_views.xml',
         'views/menu.xml',
         'views/m365_tenant_portal_views.xml',
         'views/m365_portal_templates.xml',
