@@ -1,0 +1,132 @@
+/*
+ * Navbar App Icon Button Styles
+ *
+ * Replaces the default Dropdown with a custom button.
+ * The button is inside .o_navbar_apps_menu (base class preserved).
+ *
+ * Structure:
+ *   .o_navbar .o_navbar_apps_menu
+ *     .o_beautiful_app_button
+ *       .o_app_icon_stack
+ *         .o_app_icon_nav / .o_app_icon_nav_default  (app icon)
+ *         .o_back_arrow                                (hover overlay)
+ *         .o_grid_icon                                 (home state)
+ */
+
+.o_navbar {
+    border-bottom: none !important;
+
+    .o_menu_sections {
+
+        .o_nav_entry,
+        .dropdown-toggle {
+            border-bottom: 2px solid transparent !important;
+            transition: border-color 0.3s ease;
+
+            &:hover {
+                border-bottom-color: var(--o-brand-primary, #71639e) !important;
+            }
+        }
+    }
+
+    .o_navbar_apps_menu {
+
+        // Only apply our styles when our button is present
+        &:has(.o_beautiful_app_button) {
+            padding: 0 0.75rem;
+            display: flex;
+            align-items: center;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            margin-right: 0.5rem;
+        }
+
+        .o_beautiful_app_button {
+            background: transparent !important;
+            border: none !important;
+            padding: 0;
+            cursor: pointer;
+            width: 38px;
+            height: 38px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            transition: all 0.2s ease-in-out;
+            border-radius: 10px;
+            outline: none !important;
+
+            // Hover state — reveal back arrow, hide app icon
+            &:hover {
+                background: rgba(255, 255, 255, 0.12) !important;
+
+                .o_app_icon_nav,
+                .o_app_icon_nav_default {
+                    opacity: 0 !important;
+                    transform: scale(0.7) !important;
+                }
+
+                .o_back_arrow {
+                    opacity: 1 !important;
+                    transform: scale(1) !important;
+                    visibility: visible !important;
+                }
+            }
+
+            .o_app_icon_stack {
+                position: relative;
+                width: 26px;
+                height: 26px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+
+                // App Icon (image)
+                .o_app_icon_nav {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                    border-radius: 6px;
+                    transition: all 0.25s ease;
+                }
+
+                // App Icon (CSS fallback)
+                .o_app_icon_nav_default {
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 6px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    font-size: 0.9rem;
+                    transition: all 0.25s ease;
+                }
+
+                // Grid Icon (home menu state)
+                .o_grid_icon {
+                    font-size: 1.3rem;
+                    color: rgba(255, 255, 255, 0.85);
+                    transition: opacity 0.2s ease;
+                }
+
+                // Back Arrow (hover overlay)
+                .o_back_arrow {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    color: #ffffff !important;
+                    font-size: 1.2rem;
+                    opacity: 0;
+                    visibility: hidden;
+                    transform: scale(0.5);
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    z-index: 2;
+                }
+            }
+        }
+    }
+}

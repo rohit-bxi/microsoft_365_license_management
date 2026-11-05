@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!-- Product catalogue master: skuPartNumber -> friendly name -->
+    <record id="m365_product_o365_business_essentials" model="m365.product">
+        <field name="sku_part_number">O365_BUSINESS_ESSENTIALS</field>
+        <field name="name">Microsoft 365 Business Basic</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_o365_business_premium" model="m365.product">
+        <field name="sku_part_number">O365_BUSINESS_PREMIUM</field>
+        <field name="name">Microsoft 365 Business Standard</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_spb" model="m365.product">
+        <field name="sku_part_number">SPB</field>
+        <field name="name">Microsoft 365 Business Premium</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_smb_business" model="m365.product">
+        <field name="sku_part_number">SMB_BUSINESS</field>
+        <field name="name">Microsoft 365 Apps for Business</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_officesubscription" model="m365.product">
+        <field name="sku_part_number">OFFICESUBSCRIPTION</field>
+        <field name="name">Microsoft 365 Apps for Enterprise</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_standardpack" model="m365.product">
+        <field name="sku_part_number">STANDARDPACK</field>
+        <field name="name">Office 365 E1</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_enterprisepack" model="m365.product">
+        <field name="sku_part_number">ENTERPRISEPACK</field>
+        <field name="name">Office 365 E3</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_enterprisepremium" model="m365.product">
+        <field name="sku_part_number">ENTERPRISEPREMIUM</field>
+        <field name="name">Office 365 E5</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_spe_e3" model="m365.product">
+        <field name="sku_part_number">SPE_E3</field>
+        <field name="name">Microsoft 365 E3</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_spe_e5" model="m365.product">
+        <field name="sku_part_number">SPE_E5</field>
+        <field name="name">Microsoft 365 E5</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_spe_f1" model="m365.product">
+        <field name="sku_part_number">SPE_F1</field>
+        <field name="name">Microsoft 365 F3</field>
+        <field name="category">microsoft365</field>
+    </record>
+    <record id="m365_product_exchangestandard" model="m365.product">
+        <field name="sku_part_number">EXCHANGESTANDARD</field>
+        <field name="name">Exchange Online (Plan 1)</field>
+        <field name="category">exchange</field>
+    </record>
+    <record id="m365_product_exchangeenterprise" model="m365.product">
+        <field name="sku_part_number">EXCHANGEENTERPRISE</field>
+        <field name="name">Exchange Online (Plan 2)</field>
+        <field name="category">exchange</field>
+    </record>
+    <record id="m365_product_exchangedeskless" model="m365.product">
+        <field name="sku_part_number">EXCHANGEDESKLESS</field>
+        <field name="name">Exchange Online Kiosk</field>
+        <field name="category">exchange</field>
+    </record>
+    <record id="m365_product_sharepointstandard" model="m365.product">
+        <field name="sku_part_number">SHAREPOINTSTANDARD</field>
+        <field name="name">SharePoint Online (Plan 1)</field>
+        <field name="category">sharepoint</field>
+    </record>
+    <record id="m365_product_sharepointenterprise" model="m365.product">
+        <field name="sku_part_number">SHAREPOINTENTERPRISE</field>
+        <field name="name">SharePoint Online (Plan 2)</field>
+        <field name="category">sharepoint</field>
+    </record>
+    <record id="m365_product_waconedrivestandard" model="m365.product">
+        <field name="sku_part_number">WACONEDRIVESTANDARD</field>
+        <field name="name">OneDrive for Business (Plan 1)</field>
+        <field name="category">sharepoint</field>
+    </record>
+    <record id="m365_product_waconedriveenterprise" model="m365.product">
+        <field name="sku_part_number">WACONEDRIVEENTERPRISE</field>
+        <field name="name">OneDrive for Business (Plan 2)</field>
+        <field name="category">sharepoint</field>
+    </record>
+    <record id="m365_product_teams_exploratory" model="m365.product">
+        <field name="sku_part_number">TEAMS_EXPLORATORY</field>
+        <field name="name">Microsoft Teams Exploratory</field>
+        <field name="category">teams</field>
+    </record>
+    <record id="m365_product_microsoft_teams_enterprise_new" model="m365.product">
+        <field name="sku_part_number">Microsoft_Teams_Enterprise_New</field>
+        <field name="name">Microsoft Teams Enterprise</field>
+        <field name="category">teams</field>
+    </record>
+    <record id="m365_product_mcomeetadv" model="m365.product">
+        <field name="sku_part_number">MCOMEETADV</field>
+        <field name="name">Microsoft 365 Audio Conferencing</field>
+        <field name="category">teams</field>
+    </record>
+    <record id="m365_product_mcoev" model="m365.product">
+        <field name="sku_part_number">MCOEV</field>
+        <field name="name">Microsoft Teams Phone Standard</field>
+        <field name="category">teams</field>
+    </record>
+    <record id="m365_product_power_bi_pro" model="m365.product">
+        <field name="sku_part_number">POWER_BI_PRO</field>
+        <field name="name">Power BI Pro</field>
+        <field name="category">power</field>
+    </record>
+    <record id="m365_product_power_bi_standard" model="m365.product">
+        <field name="sku_part_number">POWER_BI_STANDARD</field>
+        <field name="name">Power BI (free)</field>
+        <field name="category">power</field>
+    </record>
+    <record id="m365_product_pbi_premium_per_user" model="m365.product">
+        <field name="sku_part_number">PBI_PREMIUM_PER_USER</field>
+        <field name="name">Power BI Premium Per User</field>
+        <field name="category">power</field>
+    </record>
+    <record id="m365_product_flow_free" model="m365.product">
+        <field name="sku_part_number">FLOW_FREE</field>
+        <field name="name">Microsoft Power Automate Free</field>
+        <field name="category">power</field>
+    </record>
+    <record id="m365_product_powerapps_viral" model="m365.product">
+        <field name="sku_part_number">POWERAPPS_VIRAL</field>
+        <field name="name">Microsoft Power Apps Plan 2 Trial</field>
+        <field name="category">power</field>
+    </record>
+    <record id="m365_product_visioonline_plan1" model="m365.product">
+        <field name="sku_part_number">VISIOONLINE_PLAN1</field>
+        <field name="name">Visio Plan 1</field>
+        <field name="category">project_visio</field>
+    </record>
+    <record id="m365_product_visioclient" model="m365.product">
+        <field name="sku_part_number">VISIOCLIENT</field>
+        <field name="name">Visio Plan 2</field>
+        <field name="category">project_visio</field>
+    </record>
+    <record id="m365_product_project_p1" model="m365.product">
+        <field name="sku_part_number">PROJECT_P1</field>
+        <field name="name">Project Plan 1</field>
+        <field name="category">project_visio</field>
+    </record>
+    <record id="m365_product_projectprofessional" model="m365.product">
+        <field name="sku_part_number">PROJECTPROFESSIONAL</field>
+        <field name="name">Project Plan 3</field>
+        <field name="category">project_visio</field>
+    </record>
+    <record id="m365_product_projectpremium" model="m365.product">
+        <field name="sku_part_number">PROJECTPREMIUM</field>
+        <field name="name">Project Plan 5</field>
+        <field name="category">project_visio</field>
+    </record>
+    <record id="m365_product_aad_premium" model="m365.product">
+        <field name="sku_part_number">AAD_PREMIUM</field>
+        <field name="name">Microsoft Entra ID P1</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_aad_premium_p2" model="m365.product">
+        <field name="sku_part_number">AAD_PREMIUM_P2</field>
+        <field name="name">Microsoft Entra ID P2</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_ems" model="m365.product">
+        <field name="sku_part_number">EMS</field>
+        <field name="name">Enterprise Mobility + Security E3</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_emspremium" model="m365.product">
+        <field name="sku_part_number">EMSPREMIUM</field>
+        <field name="name">Enterprise Mobility + Security E5</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_intune_a" model="m365.product">
+        <field name="sku_part_number">INTUNE_A</field>
+        <field name="name">Microsoft Intune Plan 1</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_atp_enterprise" model="m365.product">
+        <field name="sku_part_number">ATP_ENTERPRISE</field>
+        <field name="name">Microsoft Defender for Office 365 (Plan 1)</field>
+        <field name="category">security</field>
+    </record>
+    <record id="m365_product_threat_intelligence" model="m365.product">
+        <field name="sku_part_number">THREAT_INTELLIGENCE</field>
+        <field name="name">Microsoft Defender for Office 365 (Plan 2)</field>
+        <field name="category">security</field>
+    </record>
+</odoo>

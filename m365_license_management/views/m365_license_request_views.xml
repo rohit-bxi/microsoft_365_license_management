@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_license_request_list" model="ir.ui.view">
+        <field name="name">m365.license.request.list</field>
+        <field name="model">m365.license.request</field>
+        <field name="arch" type="xml">
+            <list string="License Requests"
+                  decoration-danger="state == 'failed'"
+                  decoration-muted="state == 'rejected'"
+                  decoration-success="state == 'done'">
+                <field name="name"/>
+                <field name="tenant_id"/>
+                <field name="request_type"/>
+                <field name="user_id"/>
+                <field name="sku_id"/>
+                <field name="requested_by"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'submitted'"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state in ('failed', 'rejected')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_license_request_form" model="ir.ui.view">
+        <field name="name">m365.license.request.form</field>
+        <field name="model">m365.license.request</field>
+        <field name="arch" type="xml">
+            <form string="License Request">
+                <header>
+                    <field name="is_admin" invisible="1"/>
+                    <field name="allow_operations" invisible="1"/>
+                    <button name="action_submit" type="object" string="Submit for Approval"
+                            class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_approve" type="object" string="Approve" class="btn-primary"
+                            invisible="state != 'submitted' or not is_admin"/>
+                    <button name="action_reject" type="object" string="Reject"
+                            invisible="state != 'submitted' or not is_admin"/>
+                    <button name="action_retry" type="object" string="Retry" class="btn-primary"
+                            invisible="state != 'failed' or not is_admin"/>
+                    <button name="action_reset_draft" type="object" string="Reset to Draft"
+                            invisible="state not in ('rejected', 'failed')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,submitted,approved,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name"/></h1></div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="allow_operations or not tenant_id">
+                        License operations are disabled for this tenant.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="tenant_id" readonly="state != 'draft'"/>
+                            <field name="request_type" readonly="state != 'draft'"/>
+                            <field name="user_id" readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="sku_id" readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                        </group>
+                        <group>
+                            <field name="requested_by"/>
+                            <field name="approver_id"/>
+                            <field name="executed_date"/>
+                            <field name="company_id" invisible="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="reason" readonly="state != 'draft'"/>
+                        <field name="reject_reason" invisible="state not in ('submitted', 'rejected')"
+                               readonly="state != 'submitted'"/>
+                        <field name="error_message" invisible="not error_message"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_license_request_search" model="ir.ui.view">
+        <field name="name">m365.license.request.search</field>
+        <field name="model">m365.license.request</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="sku_id"/>
+                <field name="tenant_id"/>
+                <filter name="pending" string="Waiting Approval" domain="[('state', '=', 'submitted')]"/>
+                <filter name="failed" string="Failed" domain="[('state', '=', 'failed')]"/>
+                <filter name="done" string="Completed" domain="[('state', '=', 'done')]"/>
+                <filter name="mine" string="My Requests" domain="[('requested_by', '=', uid)]"/>
+                <group>
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_tenant" string="Tenant" context="{'group_by': 'tenant_id'}"/>
+                    <filter name="group_type" string="Operation" context="{'group_by': 'request_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_license_request" model="ir.actions.act_window">
+        <field name="name">License Requests</field>
+        <field name="res_model">m365.license.request</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

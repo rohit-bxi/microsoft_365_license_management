@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_sku_list" model="ir.ui.view">
+        <field name="name">m365.sku.list</field>
+        <field name="model">m365.sku</field>
+        <field name="arch" type="xml">
+            <list string="License Inventory" create="0" edit="0"
+                  decoration-danger="status in ('Suspended', 'LockedOut')"
+                  decoration-warning="utilization &gt;= 90 and status == 'Enabled'"
+                  decoration-muted="status == 'Deleted'">
+                <field name="name" string="Product Name"/>
+                <field name="sku_part_number" string="SKU"/>
+                <field name="tenant_id"/>
+                <field name="enabled_units" string="Total" sum="Total"/>
+                <field name="consumed_units" string="Assigned" sum="Assigned"/>
+                <field name="available_units" sum="Available"/>
+                <field name="utilization" widget="progressbar" string="Utilisation"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'Enabled'"
+                       decoration-warning="status == 'Warning'"
+                       decoration-danger="status in ('Suspended', 'LockedOut')"/>
+                <field name="last_refresh" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_sku_form" model="ir.ui.view">
+        <field name="name">m365.sku.form</field>
+        <field name="model">m365.sku</field>
+        <field name="arch" type="xml">
+            <form string="Subscription" create="0" edit="0">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_users" type="object" class="oe_stat_button"
+                                icon="fa-users">
+                            <field name="user_count" widget="statinfo" string="Users"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Subscription">
+                            <field name="tenant_id"/>
+                            <field name="product_id"/>
+                            <field name="sku_part_number"/>
+                            <field name="sku_id"/>
+                            <field name="status"/>
+                            <field name="applies_to"/>
+                            <field name="last_refresh"/>
+                        </group>
+                        <group string="Units">
+                            <field name="enabled_units"/>
+                            <field name="consumed_units"/>
+                            <field name="available_units"/>
+                            <field name="utilization" widget="progressbar"/>
+                            <field name="suspended_units"/>
+                            <field name="warning_units"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="History">
+                            <field name="snapshot_ids">
+                                <list>
+                                    <field name="snapshot_date"/>
+                                    <field name="enabled_units"/>
+                                    <field name="consumed_units"/>
+                                    <field name="available_units"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_sku_search" model="ir.ui.view">
+        <field name="name">m365.sku.search</field>
+        <field name="model">m365.sku</field>
+        <field name="arch" type="xml">
+            <search string="License Inventory">
+                <field name="name"/>
+                <field name="sku_part_number"/>
+                <field name="tenant_id"/>
+                <filter name="filter_active" string="Active" domain="[('status', '=', 'Enabled')]"/>
+                <filter name="filter_low" string="Low Availability (&#8805; 90% used)"
+                        domain="[('utilization', '&gt;=', 90), ('enabled_units', '&gt;', 0)]"/>
+                <filter name="filter_available" string="Has Available Licenses"
+                        domain="[('available_units', '&gt;', 0)]"/>
+                <group>
+                    <filter name="group_tenant" string="Tenant" context="{'group_by': 'tenant_id'}"/>
+                    <filter name="group_category" string="Category" context="{'group_by': 'category'}"/>
+                    <filter name="group_status" string="Status" context="{'group_by': 'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_sku" model="ir.actions.act_window">
+        <field name="name">License Inventory</field>
+        <field name="res_model">m365.sku</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_filter_active': 1}</field>
+    </record>
+</odoo>

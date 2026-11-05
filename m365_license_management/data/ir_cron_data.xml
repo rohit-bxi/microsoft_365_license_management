@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="ir_cron_m365_sync_tenants" model="ir.cron">
+        <field name="name">Microsoft 365: Synchronise Tenants</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_sync_all()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">30</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_cleanup_snapshots" model="ir.cron">
+        <field name="name">Microsoft 365: Purge Old Inventory Snapshots</field>
+        <field name="model_id" ref="model_m365_inventory_snapshot"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_cleanup_audit" model="ir.cron">
+        <field name="name">Microsoft 365: Purge Old Audit Logs</field>
+        <field name="model_id" ref="model_m365_audit_log"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_process_webhooks" model="ir.cron">
+        <field name="name">Microsoft 365: Process Change Notifications</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_process_webhooks()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_webhook_maintenance" model="ir.cron">
+        <field name="name">Microsoft 365: Renew Webhook Subscriptions</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_webhook_maintenance()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <!-- Triggered when tenants are queued; the hourly run picks up interrupted ones -->
+    <record id="ir_cron_m365_create_tenants" model="ir.cron">
+        <field name="name">Microsoft 365: Create Queued Tenants</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_provision_tenants()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

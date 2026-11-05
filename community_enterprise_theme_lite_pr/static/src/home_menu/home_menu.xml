@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="community_enterprise_theme_lite_pr.HomeMenu">
+        <div class="o_home_menu" t-ref="root" t-att-style="backgroundImageStyle">
+
+            <!-- Dummy input keeps focus in home menu (no search in Lite) -->
+            <input
+                type="text"
+                class="o_search_hidden visually-hidden w-auto"
+                data-allow-hotkeys="true"
+                t-ref="searchInput"
+                t-on-blur="onSearchBlur"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-haspopup="listbox"
+            />
+
+            <div class="o_home_menu_scrollable">
+                <div t-if="displayedApps.length" class="o_apps">
+                    <t t-foreach="displayedApps" t-as="app" t-key="app.id">
+                        <a class="o_app"
+                           t-att-href="app.href"
+                           t-on-click.prevent="(ev) => this.onAppClicked(app)">
+                            <div class="o_app_icon_container">
+                                <img t-if="app.webIconData"
+                                     t-att-src="app.webIconData"
+                                     class="o_app_icon"
+                                     loading="lazy"
+                                     t-att-alt="app.label"/>
+                                <div t-elif="app.webIcon"
+                                     class="o_app_icon_default"
+                                     t-attf-style="background-color: {{app.webIcon.backgroundColor}}">
+                                    <i t-att-class="app.webIcon.iconClass"
+                                       t-attf-style="color: {{app.webIcon.color}}"/>
+                                </div>
+                                <div t-else=""
+                                     class="o_app_icon_default"
+                                     style="background-color: #875A7B;">
+                                    <i class="fa fa-th-large" style="color: #ffffff;"/>
+                                </div>
+                            </div>
+                            <div class="o_app_name" t-esc="app.label"/>
+                        </a>
+                    </t>
+                </div>
+            </div>
+
+            <!-- PRO Upgrade Banner — always visible, non-intrusive footer strip -->
+            <div class="o_lite_upgrade_banner">
+                <div class="o_lite_upgrade_inner">
+                    <span class="o_lite_upgrade_features">
+                        <i class="fa fa-moon-o"/> Dark Mode &amp; Fuzzy Search in
+                        <strong>PRO</strong>
+                    </span>
+                    <a class="o_lite_upgrade_btn"
+                       href="https://apps.odoo.com/apps/themes/19.0/community_enterprise_theme_pro_pr/"
+                       target="_blank"
+                       rel="noopener noreferrer">
+                        Upgrade to PRO — $19
+                        <i class="fa fa-arrow-right ms-1"/>
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </t>
+
+</templates>

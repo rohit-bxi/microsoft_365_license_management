@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_snapshot_list" model="ir.ui.view">
+        <field name="name">m365.inventory.snapshot.list</field>
+        <field name="model">m365.inventory.snapshot</field>
+        <field name="arch" type="xml">
+            <list string="Inventory History" create="0" edit="0">
+                <field name="snapshot_date"/>
+                <field name="tenant_id"/>
+                <field name="sku_id"/>
+                <field name="enabled_units"/>
+                <field name="consumed_units"/>
+                <field name="available_units"/>
+                <field name="suspended_units" optional="hide"/>
+                <field name="warning_units" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_snapshot_graph" model="ir.ui.view">
+        <field name="name">m365.inventory.snapshot.graph</field>
+        <field name="model">m365.inventory.snapshot</field>
+        <field name="arch" type="xml">
+            <graph string="Inventory History" type="line">
+                <field name="snapshot_date" interval="day"/>
+                <field name="consumed_units" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_m365_snapshot_search" model="ir.ui.view">
+        <field name="name">m365.inventory.snapshot.search</field>
+        <field name="model">m365.inventory.snapshot</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="sku_id"/>
+                <field name="tenant_id"/>
+                <group>
+                    <filter name="group_tenant" string="Tenant" context="{'group_by': 'tenant_id'}"/>
+                    <filter name="group_sku" string="Subscription" context="{'group_by': 'sku_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_snapshot" model="ir.actions.act_window">
+        <field name="name">Inventory History</field>
+        <field name="res_model">m365.inventory.snapshot</field>
+        <field name="view_mode">list,graph</field>
+    </record>
+</odoo>

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_m365_product_list" model="ir.ui.view">
+        <field name="name">m365.product.list</field>
+        <field name="model">m365.product</field>
+        <field name="arch" type="xml">
+            <list string="Product Catalogue" editable="bottom" decoration-warning="auto_created">
+                <field name="sku_part_number"/>
+                <field name="name"/>
+                <field name="category"/>
+                <field name="sku_count" string="Tenant Subscriptions"/>
+                <field name="auto_created" optional="show"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_product_form" model="ir.ui.view">
+        <field name="name">m365.product.form</field>
+        <field name="model">m365.product</field>
+        <field name="arch" type="xml">
+            <form string="Product">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="sku_part_number"/>
+                            <field name="category"/>
+                        </group>
+                        <group>
+                            <field name="active"/>
+                            <field name="auto_created"/>
+                        </group>
+                    </group>
+                    <field name="note" placeholder="Notes..."/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_product_search" model="ir.ui.view">
+        <field name="name">m365.product.search</field>
+        <field name="model">m365.product</field>
+        <field name="arch" type="xml">
+            <search string="Products">
+                <field name="name"/>
+                <field name="sku_part_number"/>
+                <filter name="filter_auto" string="Auto Created (to review)" domain="[('auto_created', '=', True)]"/>
+                <filter name="filter_archived" string="Archived" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_category" string="Category" context="{'group_by': 'category'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_product" model="ir.actions.act_window">
+        <field name="name">Product Catalogue</field>
+        <field name="res_model">m365.product</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

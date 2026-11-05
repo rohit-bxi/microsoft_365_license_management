@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_customer_tenant_mapping_list" model="ir.ui.view">
+        <field name="name">customer.tenant.mapping.list</field>
+        <field name="model">customer.tenant.mapping</field>
+        <field name="arch" type="xml">
+            <list string="Customer Tenants Mapping">
+                <field name="customer_id"/>
+                <field name="tenant_ids" widget="many2many_tags"/>
+                <field name="tenant_count" string="Tenants"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_customer_tenant_mapping_form" model="ir.ui.view">
+        <field name="name">customer.tenant.mapping.form</field>
+        <field name="model">customer.tenant.mapping</field>
+        <field name="arch" type="xml">
+            <form string="Customer Tenants Mapping">
+                <sheet>
+                    <group>
+                        <field name="customer_id" readonly="id"/>
+                    </group>
+                    <!-- Adds existing tenants (many2many widget): the cross unlinks the tenant -->
+                    <separator string="Tenants"/>
+                    <field name="tenant_ids" nolabel="1" widget="many2many"
+                           options="{'no_create': True}"
+                           domain="[('tenant_customer_id', '=', False)]">
+                        <list>
+                            <field name="name"/>
+                            <field name="domain"/>
+                            <field name="tenant_type"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'connected'"
+                                   decoration-danger="state == 'error'"/>
+                        </list>
+                    </field>
+                    <div class="alert alert-info mt-3" role="alert">
+                        Only the tenants without customer can be added. The users mapped to
+                        this customer (User Customer Mapping) see these tenants. Deleting the
+                        mapping removes the customer of its tenants.
+                    </div>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_customer_tenant_mapping_search" model="ir.ui.view">
+        <field name="name">customer.tenant.mapping.search</field>
+        <field name="model">customer.tenant.mapping</field>
+        <field name="arch" type="xml">
+            <search string="Customer Tenants Mapping">
+                <field name="customer_id"/>
+                <field name="tenant_ids" string="Tenant"/>
+                <filter name="filter_with_tenant" string="With Tenant"
+                        domain="[('tenant_ids', '!=', False)]"/>
+                <filter name="filter_no_tenant" string="Without Tenant"
+                        domain="[('tenant_ids', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_customer_tenant_mapping" model="ir.actions.act_window">
+        <field name="name">Customer Tenants Mapping</field>
+        <field name="res_model">customer.tenant.mapping</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain" eval="False"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Map the tenants to their customer</p>
+            <p>Select a customer and add its tenants. Only the tenants without customer
+               can be added.</p>
+        </field>
+    </record>
+
+    <!-- Mappings of the customers of the existing tenants -->
+    <function model="customer.tenant.mapping" name="_create_missing_all"/>
+</odoo>
