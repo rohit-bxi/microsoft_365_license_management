@@ -130,6 +130,18 @@ class TestCustomerCustomer(M365Common):
         self.contoso.with_user(admin).name = 'Contoso Group'
         self.assertEqual(self.megan.display_name, 'Contoso Group, Megan Bowen')
 
+    def test_multi_company(self):
+        self.fabrikam.company_id = self.env['res.company'].create({'name': 'Fabrikam Ltd'})
+        admin = new_test_user(self.env, 'm365_customer_company_admin', groups=ADMIN_GROUP)
+        # The administrator is not in the company of Fabrikam Inc
+        self.assertEqual(self.env['customer.customer'].with_user(admin).search(
+            [('id', 'in', self.customers.ids)]), self.contoso | self.megan)
+
+    @mute_logger('odoo.sql_db')
+    def test_one_tag_per_name(self):
+        with self.assertRaises(IntegrityError):
+            self.env['customer.tag'].create({'name': 'Enterprise'})
+
     def test_one_customer_mapping_per_user(self):
         user = new_test_user(self.env, 'm365_customer_mapped', groups=USER_GROUP)
         Mapping = self.env['m365.user.customer.mapping']
@@ -137,8 +149,28 @@ class TestCustomerCustomer(M365Common):
         with self.assertRaises(IntegrityError), mute_logger('odoo.sql_db'):
             Mapping.create({'user_id': user.id})
 
+    def test_portal_access_action(self):
+        """The "Grant portal access" action of the customers opens the saved wizard."""
+        admin = new_test_user(self.env, 'm365_customer_action_admin', groups=ADMIN_GROUP)
+        server_action = self.env.ref('m365_license_management.action_customer_portal_wizard')
+        action = server_action.with_user(admin).with_context(
+            active_model='customer.customer', active_ids=self.fabrikam.ids).run()
+        wizard = self.env['customer.portal.wizard'].browse(action['res_id'])
+        self.assertEqual((action['res_model'], action['target']), (wizard._name, 'new'))
+        self.assertEqual(wizard.user_ids.customer_id, self.fabrikam)
+        # Not opened from the customers: no customer
+        self.assertFalse(self.env['customer.portal.wizard'].with_user(admin).create(
+            {}).customer_ids)
+        # Microsoft 365 users cannot grant the portal access
+        user = new_test_user(self.env, 'm365_customer_action_user', groups=USER_GROUP)
+        with self.assertRaises(AccessError):
+            self.env['customer.portal.wizard'].with_user(user).with_context(
+                active_model='customer.customer', active_ids=self.fabrikam.ids).create({})
+
     def test_portal_access(self):
         """Grant portal access, as a Microsoft 365 administrator (not a settings admin)."""
+        self.env['res.lang']._activate_lang('fr_FR')
+        self.contoso.lang = 'fr_FR'
         admin = new_test_user(self.env, 'm365_customer_portal_admin', groups=ADMIN_GROUP)
         wizard = self.env['customer.portal.wizard'].with_user(admin).with_context(
             active_model='customer.customer', active_ids=self.contoso.ids).create({})
@@ -149,6 +181,8 @@ class TestCustomerCustomer(M365Common):
         self.assertEqual((line.email_state, megan_line.email_state), ('ok', 'ko'))
         with self._raises('no valid email'):
             megan_line.action_grant_access()
+        with self._raises('has no portal access'):
+            line.action_revoke_access()
 
         Mail = type(self.env['mail.mail'])
         with patch.object(Mail, 'send', autospec=True):
@@ -156,8 +190,8 @@ class TestCustomerCustomer(M365Common):
         self.assertEqual((action['res_model'], action['res_id']), (wizard._name, wizard.id))
         user = self.contoso.portal_user_id
         self.assertTrue(user._is_portal())
-        self.assertEqual((user.name, user.login, user.email),
-                         ('Contoso Ltd', 'info@contoso.com', 'info@contoso.com'))
+        self.assertEqual((user.name, user.login, user.email, user.lang),
+                         ('Contoso Ltd', 'info@contoso.com', 'info@contoso.com', 'fr_FR'))
         self.assertTrue(line.is_portal)
         # Invited by email to set the password
         invitation = self.env['mail.mail'].sudo().search(
@@ -169,6 +203,8 @@ class TestCustomerCustomer(M365Common):
         # The email of another user cannot be used
         megan_line.email = 'Info <info@contoso.com>'
         self.assertEqual(megan_line.email_state, 'exist')
+        with self._raises('already used by another user'):
+            megan_line.action_grant_access()
         # A new email is saved on the customer and its portal user
         line.email = 'it@contoso.com'
         with patch.object(Mail, 'send', autospec=True):
