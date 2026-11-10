@@ -188,7 +188,7 @@ class M365Dashboard(models.AbstractModel):
         forecast = {part: (int(available[part] / rate) if rate > 0 else None)
                     for part, rate in rates.items()}
         return points, forecast
-
+        
     @api.model
     def _get_alerts(self, tenants, skus):
         """Actionable insights shown in the dashboard attention panel."""

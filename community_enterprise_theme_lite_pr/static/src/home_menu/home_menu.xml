@@ -46,21 +46,9 @@
                 </div>
             </div>
 
-            <!-- PRO Upgrade Banner — always visible, non-intrusive footer strip -->
+            <!-- Footer strip -->
             <div class="o_lite_upgrade_banner">
-                <div class="o_lite_upgrade_inner">
-                    <span class="o_lite_upgrade_features">
-                        <i class="fa fa-moon-o"/> Dark Mode &amp; Fuzzy Search in
-                        <strong>PRO</strong>
-                    </span>
-                    <a class="o_lite_upgrade_btn"
-                       href="https://apps.odoo.com/apps/themes/19.0/community_enterprise_theme_pro_pr/"
-                       target="_blank"
-                       rel="noopener noreferrer">
-                        Upgrade to PRO — $19
-                        <i class="fa fa-arrow-right ms-1"/>
-                    </a>
-                </div>
+                <div class="o_lite_upgrade_inner"/>
             </div>
 
         </div>
