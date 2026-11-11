@@ -32,6 +32,14 @@
                     <button name="action_set_usage_location" type="object"
                             string="Set Usage Location"
                             groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_view_mfa" type="object" string="MFA Methods"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_request_mfa_reset" type="object"
+                            string="Request MFA Reset" invisible="not allow_security_operations"/>
+                    <button name="action_request_mfa_disable" type="object"
+                            string="Request Per-user MFA Off"
+                            invisible="not allow_security_operations"/>
+                    <field name="allow_security_operations" invisible="1"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"

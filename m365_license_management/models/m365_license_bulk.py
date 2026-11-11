@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
+from .m365_license_request import MFA_TYPES
 from .m365_tenant import M365GraphError
 
 TEMPLATE_NAME = 'm365_bulk_%s_template.xlsx'  # per operation
@@ -41,6 +42,13 @@ SAMPLE_ROWS = {
         ('aaaaaaaa-0000-0000-0000-000000000004', 'cccccccc-0000-0000-0000-000000000001',
          '6fd2c87f-b296-42f0-b197-1e91e994b900', 'Joined the migration project'),
     ],
+    'mfa_reset': [
+        ('contoso.com', 'lee.gu@contoso.com', '', 'Lost phone, ticket 4711'),
+        ('Adventure Works', 'diego.siciliani@adventure-works.com', '', 'New phone'),
+    ],
+    'mfa_disable': [
+        ('contoso.com', 'lee.gu@contoso.com', '', 'Moved to Conditional Access, ticket 4712'),
+    ],
     'remove': [
         ('contoso.com', 'lee.gu@contoso.com', 'ENTERPRISEPACK', 'Left the company'),
         ('Adventure Works', 'diego.siciliani@adventure-works.com',
@@ -53,11 +61,13 @@ SAMPLE_ROWS = {
 
 
 class M365LicenseBulkWizard(models.TransientModel):
-    """Assign or remove licenses for the users listed in an uploaded file.
+    """Assign or remove licenses, or request MFA operations, for the users listed in an
+    uploaded file.
 
     Every row (tenant, user, license) is verified first and nothing is executed
-    while a row is not valid. One license request is created per row, so every
-    operation follows the approval workflow and is written to the audit log.
+    while a row is not valid. One request is created per row, so every operation
+    follows the approval workflow and is written to the audit log. The MFA operations
+    have no license and need a justification.
     """
     _name = 'm365.license.bulk.wizard'
     _inherit = 'm365.file.import.mixin'
@@ -66,6 +76,8 @@ class M365LicenseBulkWizard(models.TransientModel):
     request_type = fields.Selection([
         ('assign', 'Assign License'),
         ('remove', 'Remove License'),
+        ('mfa_reset', 'Reset MFA'),
+        ('mfa_disable', 'Turn Off Per-user MFA'),
     ], string="Operation", required=True, default='assign')
     file = fields.Binary(string="File", attachment=False,
                          help="Excel (.xlsx) or CSV file with one tenant, user and license "
@@ -106,6 +118,15 @@ class M365LicenseBulkWizard(models.TransientModel):
             'context': {'dialog_size': 'extra-large'},
         }
 
+    def _is_mfa(self):
+        return self.request_type in MFA_TYPES
+
+    def _required_keys(self):
+        """Columns required for the operation: no license for MFA, but a reason."""
+        if self._is_mfa():
+            return {'tenant', 'user', 'reason'}
+        return {key for key, _title, required, _aliases in COLUMNS if required}
+
     # ------------------------------------------------------------------
     # File reading
     # ------------------------------------------------------------------
@@ -131,8 +152,9 @@ class M365LicenseBulkWizard(models.TransientModel):
                 "Unknown column(s): %(unknown)s.\nAllowed columns: %(allowed)s.",
                 unknown=", ".join(unknown),
                 allowed=", ".join(title for _key, title, _req, _aliases in COLUMNS)))
-        missing = [title for key, title, required, _aliases in COLUMNS
-                   if required and key not in mapping.values()]
+        required = self._required_keys()
+        missing = [title for key, title, _required, _aliases in COLUMNS
+                   if key in required and key not in mapping.values()]
         if missing:
             raise UserError(_("Missing required column(s): %s.", ", ".join(missing)))
         return mapping
@@ -189,13 +211,17 @@ class M365LicenseBulkWizard(models.TransientModel):
         if len(rows) < 2:
             raise UserError(_("The file contains no rows below the header."))
         mapping = self._map_header(rows[0])
+        required = self._required_keys()
         result = []
         for sn, values in enumerate(rows[1:], start=1):
             texts = dict.fromkeys(TITLES, '')
             texts.update({key: values[index] for index, key in mapping.items()
                           if index < len(values)})
-            errors = [_("%s is required.", title) for key, title, required, _aliases in COLUMNS
-                      if required and not texts[key]]
+            errors = [_("%s is required.", title) for key, title, _req, _aliases in COLUMNS
+                      if key in required and not texts[key]]
+            if self._is_mfa() and texts['license']:
+                errors.append(_("An MFA request has no license: leave the License column "
+                                "empty."))
             result.append({'sn': sn, 'texts': texts, 'errors': errors})
         self._match_rows(result)
         self._check_rows(result)
@@ -221,6 +247,8 @@ class M365LicenseBulkWizard(models.TransientModel):
 
     def _check_rows(self, rows):
         """Check that the operation can be done for every matched row."""
+        if self._is_mfa():
+            return self._check_mfa_rows(rows)
         assign = self.request_type == 'assign'
         users = self.env['m365.license.user'].union(*(row['user'] for row in rows))
         pending = {(request.user_id.id, request.sku_id.id)
@@ -260,6 +288,27 @@ class M365LicenseBulkWizard(models.TransientModel):
                                     "%(count)s available.", sku=sku.name, tenant=tenant.name,
                                     count=sku.available_units))
 
+    def _check_mfa_rows(self, rows):
+        users = self.env['m365.license.user'].union(*(row['user'] for row in rows))
+        pending = set(self.env['m365.license.request'].sudo().search([
+            ('user_id', 'in', users.ids), ('request_type', '=', self.request_type),
+            ('state', 'in', ('submitted', 'approved'))]).user_id.ids)
+        seen = {}
+        for row in rows:
+            tenant, user, errors = row['tenant'], row['user'], row['errors']
+            if tenant and not tenant.allow_security_operations:
+                errors.append(_("Security operations are disabled for tenant %s.",
+                                tenant.name))
+            elif tenant.state == 'draft':
+                errors.append(_("Test the connection of tenant %s first.", tenant.name))
+            if not user:
+                continue
+            if user.id in seen:
+                errors.append(_("Duplicate row, same as SN. %s.", seen[user.id]))
+            elif user.id in pending:
+                errors.append(_("A similar request is already pending for this user."))
+            seen.setdefault(user.id, row['sn'])
+
     @staticmethod
     def _line_vals(row):
         return {
@@ -289,7 +338,7 @@ class M365LicenseBulkWizard(models.TransientModel):
         if self.state == 'done':
             return self._reopen()
         if not self.line_ids:
-            raise UserError(_("Verify the file before assigning or removing licenses."))
+            raise UserError(_("Verify the file before submitting the requests."))
         # Verify again: the file, the users or the inventory may have changed since
         rows = self._parse()
         invalid = [row for row in rows if row['errors']]
@@ -307,6 +356,8 @@ class M365LicenseBulkWizard(models.TransientModel):
             vals.update(self._submit_request(Request, row))
             lines.append(Command.create(vals))
         self.write({'state': 'done', 'line_ids': [Command.clear()] + lines})
+        if self._is_mfa():
+            return self._reopen()
         for tenant in self.line_ids.filtered(lambda line: line.status == 'done').tenant_id:
             try:
                 tenant._sync_inventory()
@@ -338,14 +389,17 @@ class M365LicenseBulkWizard(models.TransientModel):
     # Template
     # ------------------------------------------------------------------
     def _template_hints(self):
+        mfa = self._is_mfa()
         return {
             'tenant': _("Required. Tenant name, primary domain or directory (tenant) ID, "
                         "e.g. contoso.com"),
             'user': _("Required. User principal name, email or object ID, "
                       "e.g. adele.vance@contoso.com"),
-            'license': _("Required. SKU, product name or SKU ID, e.g. SPE_E3. See the "
-                         "Available Licenses sheet."),
-            'reason': _("Optional. Stored on the license request."),
+            'license': _("Leave empty: an MFA request has no license.") if mfa else
+            _("Required. SKU, product name or SKU ID, e.g. SPE_E3. See the Available "
+              "Licenses sheet."),
+            'reason': _("Required. Stored on the request.") if mfa else
+            _("Optional. Stored on the license request."),
         }
 
     def _sample_rows(self):
@@ -353,8 +407,10 @@ class M365LicenseBulkWizard(models.TransientModel):
         the operation can be done for, verified like the rows of an uploaded file. The
         placeholder rows are used when there is none.
         """
-        assign = self.request_type == 'assign'
         samples = SAMPLE_ROWS[self.request_type]
+        if self._is_mfa():
+            return samples
+        assign = self.request_type == 'assign'
         tenants = self.env['m365.tenant'].search([('allow_license_operations', '=', True),
                                                   ('state', '!=', 'draft')])
         skus = self.env['m365.sku'].search([('tenant_id', 'in', tenants.ids)])
@@ -392,10 +448,11 @@ class M365LicenseBulkWizard(models.TransientModel):
         sheet = book.active
         sheet.title = _("Licenses")
         required_fill = PatternFill('solid', fgColor='FFF2CC')
-        for col, (key, title, required, _aliases) in enumerate(COLUMNS, start=1):
+        required = self._required_keys()
+        for col, (key, title, _required, _aliases) in enumerate(COLUMNS, start=1):
             cell = sheet.cell(row=1, column=col, value=title)
             cell.font = Font(bold=True)
-            if required:
+            if key in required:
                 cell.fill = required_fill
             cell.comment = Comment(hints[key], 'Odoo')
             sheet.column_dimensions[cell.column_letter].width = 36

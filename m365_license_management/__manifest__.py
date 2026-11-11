@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.6.0',
+    'version': '19.0.1.7.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
-               'approval based assignment and audit via Microsoft Graph',
+               'approval based assignment, tenant setup, MFA operations and Ingram Micro '
+               'ordering',
     'description': """
 Microsoft 365 License Management
 ================================
@@ -14,6 +15,17 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 * Tenant masters (Entra app registration, OAuth 2.0 client credentials)
 * Tenants of type New: created through Microsoft Partner Center (CSP), one by one
   or in bulk from a CSV / Excel file, then connected like existing tenants
+* Shared multi-tenant app of the partner: tenants connect after a one-time admin
+  consent, without an app registration of their own
+* Tenant configuration profiles (Security Defaults, password expiry, technical contact)
+  and custom domains (add, DNS records, verify, default)
+* Users created from Odoo, one by one or from a file, with their license requests
+* MFA operations with approval: reset MFA, per-user MFA off, Security Defaults off,
+  Temporary Access Pass
+* End-to-end provisioning: customer file, tenant, GDAP, Partner Center subscriptions,
+  users, licenses, verification (licenseDetails) and provisioning report
+* Licenses bought from Ingram Micro (catalog, prices, orders with approval, webhook,
+  delivery check in the tenant)
 * Product catalogue master (SKU part number -> friendly product name)
 * License inventory synchronisation (GET /subscribedSkus) with history snapshots
 * User directory synchronisation (GET /users) with current licenses
@@ -55,6 +67,10 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/m365_audit_log_views.xml',
         'views/m365_snapshot_views.xml',
         'views/m365_dashboard_views.xml',
+        'views/m365_config_views.xml',
+        'views/m365_user_create_views.xml',
+        'views/m365_ingram_views.xml',
+        'views/m365_provisioning_views.xml',
         'views/customer_customer_views.xml',
         'views/customer_portal_wizard_views.xml',
         'views/m365_user_customer_mapping_views.xml',
@@ -62,6 +78,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/menu.xml',
         'views/m365_tenant_portal_views.xml',
         'views/m365_portal_templates.xml',
+        'views/m365_consent_templates.xml',
     ],
     'assets': {
         'web.assets_backend': [

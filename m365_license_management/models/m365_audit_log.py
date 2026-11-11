@@ -25,6 +25,18 @@ class M365AuditLog(models.Model):
         ('request', 'License Request'),
         ('notification', 'Notification'),
         ('provision_tenant', 'Tenant Creation'),
+        ('consent', 'Admin Consent'),
+        ('configure_tenant', 'Tenant Configuration'),
+        ('domain', 'Domain'),
+        ('create_user', 'Create User'),
+        ('mfa_reset', 'Reset MFA'),
+        ('mfa_disable', 'Turn Off Per-user MFA'),
+        ('security_defaults', 'Security Defaults'),
+        ('tap', 'Temporary Access Pass'),
+        ('license_order', 'License Order'),
+        ('gdap', 'GDAP'),
+        ('pc_order', 'Subscription Order'),
+        ('verify_license', 'License Verification'),
     ], string="Operation", readonly=True, required=True)
     status = fields.Selection([
         ('success', 'Success'),

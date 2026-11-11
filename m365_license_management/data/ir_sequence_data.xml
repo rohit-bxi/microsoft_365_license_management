@@ -7,4 +7,21 @@
         <field name="padding">5</field>
         <field name="company_id" eval="False"/>
     </record>
+
+    <record id="seq_m365_pc_order" model="ir.sequence">
+        <field name="name">Microsoft 365 Subscription Order</field>
+        <field name="code">m365.pc.order</field>
+        <field name="prefix">SUB/%(year)s/</field>
+        <field name="padding">5</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
+    <!-- PO number of the license orders, sent to Ingram Micro as customerOrderNumber -->
+    <record id="seq_m365_ingram_order" model="ir.sequence">
+        <field name="name">Microsoft 365 License Order</field>
+        <field name="code">m365.ingram.order</field>
+        <field name="prefix">M365-</field>
+        <field name="padding">5</field>
+        <field name="company_id" eval="False"/>
+    </record>
 </odoo>

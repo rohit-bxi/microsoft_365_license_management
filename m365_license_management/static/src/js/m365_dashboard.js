@@ -178,7 +178,13 @@ export class M365Dashboard extends Component {
         const q = params.toString() ? `?${params}` : "";
         browser.open(`/m365/export/licenses${q}`, "_blank");
     }
-    onAlertClick(a) {
+    async onAlertClick(a) {
+        if (a.buy_sku_id) {
+            // Administrators with an Ingram Micro account: buy licenses of the product
+            this.state.navOpen = false;
+            const action = await this.orm.call("m365.sku", "action_buy_licenses", [[a.buy_sku_id]]);
+            return this.action.doAction(action);
+        }
         const map = {
             tenant_error: "action_m365_tenant",
             tenant_draft: "action_m365_tenant",

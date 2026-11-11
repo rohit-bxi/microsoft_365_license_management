@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Create one user -->
+    <record id="view_m365_user_create_wizard" model="ir.ui.view">
+        <field name="name">m365.user.create.wizard.form</field>
+        <field name="model">m365.user.create.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create User">
+                <field name="state" invisible="1"/>
+                <div class="alert alert-danger" role="alert" invisible="not error or state == 'done'">
+                    <field name="error" nolabel="1" class="d-block"/>
+                </div>
+                <div class="alert alert-success" role="alert" invisible="state != 'done'">
+                    <field name="result" nolabel="1" class="d-block" style="white-space: pre-line;"/>
+                </div>
+                <group invisible="state != 'done'">
+                    <field name="user_id"/>
+                    <field name="password" widget="CopyClipboardChar"/>
+                </group>
+                <p class="text-muted" invisible="state != 'done'">The password is shown only
+                   now: press <b>Done</b> to remove it from Odoo.</p>
+                <group invisible="state == 'done'">
+                    <group string="User">
+                        <field name="tenant_id" options="{'no_create': True}"/>
+                        <field name="given_name"/>
+                        <field name="surname"/>
+                        <field name="full_name"/>
+                        <label for="user_name" string="User Principal Name"/>
+                        <div class="o_row">
+                            <field name="user_name" placeholder="adele.vance"/>
+                            <span>@</span>
+                            <field name="domain_id" options="{'no_create': True, 'no_open': True}"/>
+                        </div>
+                    </group>
+                    <group string="Details">
+                        <field name="usage_location_id" options="{'no_create': True}"/>
+                        <field name="department"/>
+                        <field name="job_title"/>
+                        <field name="sku_ids" widget="many2many_tags"
+                               options="{'no_create': True}"/>
+                        <field name="reason" invisible="not sku_ids"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_create" type="object" string="Create in Microsoft 365"
+                            class="btn-primary" data-hotkey="q" invisible="state == 'done'"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"
+                            invisible="state == 'done'"/>
+                    <button name="action_done" type="object" string="Done" class="btn-primary"
+                            data-hotkey="x" invisible="state != 'done'"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Create users from a file -->
+    <record id="view_m365_user_import_wizard" model="ir.ui.view">
+        <field name="name">m365.user.import.wizard.form</field>
+        <field name="model">m365.user.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Bulk Create Users">
+                <field name="state" invisible="1"/>
+                <div class="alert alert-info" role="alert" invisible="state == 'done' or line_ids">
+                    Upload an <b>Excel (.xlsx)</b> or <b>CSV</b> file with one user per row and
+                    press <b>Verify</b> (see <b>Download Template</b> for the columns). The user
+                    principal name must be on a verified domain of the tenant. Each user gets a
+                    temporary password, to change at the first sign-in, in the result file. The
+                    licenses of a row are requested with the usual approval.
+                </div>
+                <div class="alert alert-danger" role="alert"
+                     invisible="state == 'done' or not error_count">
+                    <field name="error_count" class="d-inline"/> row(s) contain errors. Correct
+                    the file and verify it again: no user is created until every row is valid.
+                </div>
+                <div class="alert alert-success" role="alert" invisible="state != 'done'">
+                    Created: <field name="done_count" class="d-inline"/> ·
+                    Failed: <field name="failed_count" class="d-inline"/>. Download the result
+                    file for the temporary passwords, then press <b>Done</b> to remove them
+                    from Odoo.
+                </div>
+                <group invisible="state == 'done'">
+                    <field name="file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
+                </group>
+                <field name="line_ids" readonly="1" invisible="not line_ids">
+                    <list decoration-danger="status in ('error', 'failed')">
+                        <field name="sn"/>
+                        <field name="tenant_ref"/>
+                        <field name="upn"/>
+                        <field name="full_name"/>
+                        <field name="licenses" optional="show"/>
+                        <field name="tenant_id" optional="hide"/>
+                        <field name="status" widget="badge"
+                               decoration-success="status in ('valid', 'done')"
+                               decoration-danger="status in ('error', 'failed')"/>
+                        <field name="user_id" column_invisible="parent.state != 'done'"/>
+                        <field name="message"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_verify" type="object" string="Verify"
+                            class="btn-primary" data-hotkey="v"
+                            invisible="state == 'done' or (line_ids and not error_count)"/>
+                    <button name="action_execute" type="object" string="Create Users"
+                            class="btn-primary" data-hotkey="q"
+                            invisible="state == 'done' or not line_ids or error_count"
+                            confirm="Create all the users of the file in Microsoft 365?"/>
+                    <button name="action_download_template" type="object"
+                            string="Download Template" class="btn-secondary"
+                            invisible="state == 'done'"/>
+                    <button name="action_download_result" type="object"
+                            string="Download Result" class="btn-primary"
+                            invisible="state != 'done'"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"
+                            invisible="state == 'done'"/>
+                    <button name="action_done" type="object" string="Done" data-hotkey="x"
+                            invisible="state != 'done'"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_user_import" model="ir.actions.act_window">
+        <field name="name">Bulk Create Users</field>
+        <field name="res_model">m365.user.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'dialog_size': 'extra-large'}</field>
+    </record>
+
+    <record id="action_m365_user_create" model="ir.actions.act_window">
+        <field name="name">Create User</field>
+        <field name="res_model">m365.user.create.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- MFA of a user -->
+    <record id="view_m365_user_mfa_wizard" model="ir.ui.view">
+        <field name="name">m365.user.mfa.wizard.form</field>
+        <field name="model">m365.user.mfa.wizard</field>
+        <field name="arch" type="xml">
+            <form string="MFA">
+                <div class="alert alert-warning" role="alert" invisible="not error">
+                    <field name="error" nolabel="1" class="d-block"/>
+                </div>
+                <group>
+                    <field name="user_id"/>
+                    <field name="per_user_mfa_state"/>
+                    <field name="allow_security_operations" invisible="1"/>
+                </group>
+                <field name="method_ids">
+                    <list>
+                        <field name="method_type"/>
+                        <field name="detail"/>
+                        <field name="created"/>
+                        <field name="removable"/>
+                    </list>
+                </field>
+                <div class="alert alert-info" role="alert" invisible="allow_security_operations">
+                    Security operations are disabled for this tenant: MFA can only be viewed.
+                </div>
+                <group string="Temporary Access Pass" invisible="not allow_security_operations">
+                    <group>
+                        <field name="tap_policy_state" widget="badge"
+                               decoration-success="tap_policy_state == 'enabled'"
+                               decoration-danger="tap_policy_state == 'disabled'"/>
+                        <field name="tap_lifetime"/>
+                        <field name="tap_usable_once" readonly="tap_policy_once"/>
+                        <field name="tap_policy_once" invisible="1"/>
+                        <label for="tap_policy_min" string="Allowed Lifetime"
+                               invisible="not tap_policy_max"/>
+                        <div invisible="not tap_policy_max">
+                            <field name="tap_policy_min" class="oe_inline"/> to
+                            <field name="tap_policy_max" class="oe_inline"/> minutes
+                        </div>
+                    </group>
+                    <group invisible="not tap_code">
+                        <field name="tap_code" widget="CopyClipboardChar"/>
+                        <field name="tap_expiry"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_request_reset" type="object" string="Request MFA Reset"
+                            class="btn-primary" invisible="not allow_security_operations"/>
+                    <button name="action_request_disable" type="object"
+                            string="Request Per-user MFA Off"
+                            invisible="not allow_security_operations"/>
+                    <button name="action_enable_tap" type="object"
+                            string="Enable Temporary Access Pass"
+                            invisible="not allow_security_operations or tap_policy_state != 'disabled'"
+                            confirm="Enable the Temporary Access Pass method in the tenant? The users it applies to stay as configured in Microsoft Entra."/>
+                    <button name="action_issue_tap" type="object"
+                            string="Issue Temporary Access Pass"
+                            invisible="not allow_security_operations or tap_policy_state == 'disabled'"
+                            confirm="Issue a Temporary Access Pass? It lets the user sign in without MFA to register it again."/>
+                    <button name="action_refresh" type="object" string="Refresh"/>
+                    <button name="action_done" type="object" string="Close" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

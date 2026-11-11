@@ -20,6 +20,7 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 
 API = '/m365/api/v1'
+REQUEST_TYPES = ('assign', 'remove', 'mfa_reset', 'mfa_disable')
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 MAX_LIMIT = 200
 
@@ -140,11 +141,35 @@ def _req(r):
         'id': r.id, 'reference': r.name, 'tenant_id': r.tenant_id.id,
         'type': r.request_type, 'state': r.state,
         'user': {'id': r.user_id.id, 'name': r.user_id.name},
-        'sku': {'id': r.sku_id.id, 'name': r.sku_id.name},
+        'sku': {'id': r.sku_id.id, 'name': r.sku_id.name} if r.sku_id else None,
         'requested_by': r.requested_by.name, 'approver': r.approver_id.name or None,
         'reason': r.reason or None, 'reject_reason': r.reject_reason or None,
         'error': r.error_message or None, 'executed_date': _dt(r.executed_date),
         'created': _dt(r.create_date),
+    }
+
+
+def _domain(d):
+    return {
+        'id': d.id, 'tenant_id': d.tenant_id.id, 'name': d.name,
+        'is_verified': d.is_verified, 'is_default': d.is_default, 'is_initial': d.is_initial,
+        'verification_records': d.verification_records or None,
+        'service_records': d.service_records or None,
+    }
+
+
+def _order(o):
+    return {
+        'id': o.id, 'po_number': o.name, 'tenant_id': o.tenant_id.id, 'state': o.state,
+        'account_id': o.account_id.id, 'ingram_order_numbers': o.ingram_order_numbers or None,
+        'confirmation_number': o.confirmation_number or None,
+        'amount_total': o.amount_total, 'currency': o.currency_id.name or None,
+        'error': o.error_message or None, 'requested_by': o.requested_by.name,
+        'approver': o.approver_id.name or None, 'sent': _dt(o.sent_date),
+        'confirmed': _dt(o.confirmed_date), 'delivered': _dt(o.delivered_date),
+        'lines': [{'plan_id': l.plan_id.plan_id, 'plan': l.plan_id.name,
+                   'quantity': l.quantity, 'unit_price': l.unit_price,
+                   'delivered': l.delivered} for l in o.line_ids],
     }
 
 
@@ -205,6 +230,100 @@ class M365ApiController(http.Controller):
         if not ok:
             raise UserError("\n".join(messages))
         return {'messages': messages, 'tenant': _tenant(tenant)}
+
+    @http.route(API + '/tenants/<int:tenant_id>/users', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def tenant_create_user(self, tenant_id, **kw):
+        """Create a user in Microsoft 365 (administrators).
+
+        Body: user_principal_name, display_name, given_name, surname, usage_location,
+        department, job_title, licenses (SKU ids or SKU part numbers), reason.
+        The temporary password is returned once and never stored.
+        """
+        _require_admin()
+        tenant = _browse('m365.tenant', tenant_id)
+        body = _body()
+        upn = (body.get('user_principal_name') or '').strip()
+        display_name = (body.get('display_name') or '').strip()
+        usage = (body.get('usage_location') or tenant._default_usage_location() or '')
+        skus = request.env['m365.sku']
+        for ref in body.get('licenses') or []:
+            domain = [('tenant_id', '=', tenant.id)] + (
+                [('id', '=', ref)] if isinstance(ref, int) else
+                [('sku_part_number', '=ilike', str(ref))])
+            sku = request.env['m365.sku'].search(domain, limit=1)
+            if not sku:
+                raise ValueError(_("License %s not found in the tenant.", ref))
+            skus |= sku
+        tenant._check_operations_allowed()
+        errors = tenant._check_new_user(upn, display_name, usage or None)
+        if skus and not usage:
+            errors.append(_("A usage location is required to assign a license."))
+        if errors:
+            raise ValueError(" ".join(errors))
+        user, password = tenant._create_user(
+            upn, display_name, given_name=body.get('given_name'), surname=body.get('surname'),
+            usage_location=usage or None, department=body.get('department'),
+            job_title=body.get('job_title'))
+        results = tenant._request_licenses(user, skus, body.get('reason') or False)
+        return {
+            'user': _user(user),
+            'password': password,
+            'requests': [_req(req) if req else {'sku': {'id': sku.id, 'name': sku.name},
+                                                'error': message}
+                         for sku, req, message in results],
+        }
+
+    @http.route(API + '/tenants/<int:tenant_id>/consent', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def tenant_consent(self, tenant_id, **kw):
+        """Consent link of the shared app, to send to a Global Administrator."""
+        _require_admin()
+        tenant = _browse('m365.tenant', tenant_id)
+        action = tenant.action_grant_consent()
+        return {'url': action['url'], 'valid_until': _dt(tenant.consent_expiry)}
+
+    @http.route(API + '/tenants/<int:tenant_id>/configuration', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def tenant_configuration(self, tenant_id, **kw):
+        """Apply the configuration profile of the tenant."""
+        _require_admin()
+        tenant = _browse('m365.tenant', tenant_id)
+        ok, message = tenant._apply_configuration_safe()
+        return {'ok': ok, 'message': message, 'config_state': tenant.config_state,
+                'security_defaults': tenant.security_defaults_state or None}
+
+    @http.route(API + '/tenants/<int:tenant_id>/domains', type='http', auth='bearer',
+                methods=['GET'], csrf=False)
+    @api_endpoint
+    def tenant_domains(self, tenant_id, **kw):
+        return [_domain(d) for d in _browse('m365.tenant', tenant_id).domain_ids]
+
+    @http.route(API + '/tenants/<int:tenant_id>/domains', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def tenant_domain_add(self, tenant_id, **kw):
+        """Body: name. Returns the domain with the DNS records to verify it."""
+        _require_admin()
+        tenant = _browse('m365.tenant', tenant_id)
+        wizard = request.env['m365.tenant.domain.wizard'].create(
+            {'tenant_id': tenant.id, 'name': _body().get('name') or ''})
+        return _domain(wizard._add())
+
+    @http.route(API + '/domains/<int:domain_id>/verify', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def domain_verify(self, domain_id, **kw):
+        _require_admin()
+        domain = _browse('m365.tenant.domain', domain_id)
+        action = domain.action_verify()
+        result = _domain(domain)
+        if not domain.is_verified:
+            result['error'] = action['params']['message']
+        return result
 
     @http.route(API + '/tenants/<int:tenant_id>/service_plans', type='http',
                 auth='bearer', methods=['GET'], csrf=False)
@@ -324,15 +443,17 @@ class M365ApiController(http.Controller):
     @http.route(API + '/requests', type='http', auth='bearer', methods=['POST'], csrf=False)
     @api_endpoint
     def request_create(self, **kw):
-        """Body: tenant_id, user_id, sku_id, type (assign|remove), reason."""
+        """Body: tenant_id, user_id, type (assign|remove|mfa_reset|mfa_disable), sku_id
+        (assign and remove only), reason (required for the MFA types)."""
         body = _body()
         req_type = body.get('type', 'assign')
-        if req_type not in ('assign', 'remove'):
-            raise ValueError(_("type must be 'assign' or 'remove'."))
+        if req_type not in REQUEST_TYPES:
+            raise ValueError(_("type must be one of: %s.", ", ".join(REQUEST_TYPES)))
         rec = request.env['m365.license.request'].create({
             'tenant_id': _int(body.get('tenant_id'), 'tenant_id'),
             'user_id': _int(body.get('user_id'), 'user_id'),
-            'sku_id': _int(body.get('sku_id'), 'sku_id'),
+            'sku_id': (_int(body.get('sku_id'), 'sku_id') if req_type in ('assign', 'remove')
+                       else False),
             'request_type': req_type,
             'reason': body.get('reason') or False,
         })
@@ -365,6 +486,97 @@ class M365ApiController(http.Controller):
     @api_endpoint
     def request_retry(self, req_id, **kw):
         return self._workflow(req_id, 'action_retry')
+
+    # ------------------------------------------------------------------
+    # License orders (Ingram Micro)
+    # ------------------------------------------------------------------
+    @http.route(API + '/orders', type='http', auth='bearer', methods=['GET'], csrf=False)
+    @api_endpoint
+    def orders_list(self, **kw):
+        domain = []
+        if kw.get('state'):
+            domain.append(('state', '=', kw['state']))
+        if kw.get('tenant_id'):
+            domain.append(('tenant_id', '=', _int(kw['tenant_id'], 'tenant_id')))
+        limit, offset = _page(kw)
+        Order = request.env['m365.ingram.order']
+        return {'total': Order.search_count(domain),
+                'items': [_order(o) for o in Order.search(domain, limit=limit, offset=offset)]}
+
+    @http.route(API + '/orders/<int:order_id>', type='http', auth='bearer', methods=['GET'],
+                csrf=False)
+    @api_endpoint
+    def order_get(self, order_id, **kw):
+        return _order(_browse('m365.ingram.order', order_id))
+
+    @http.route(API + '/orders', type='http', auth='bearer', methods=['POST'], csrf=False)
+    @api_endpoint
+    def order_create(self, **kw):
+        """Body: tenant_id, lines [{plan_id (Ingram plan ID), quantity}], reason, submit
+        (default true). The order then waits for the approval of an administrator."""
+        _require_admin()
+        body = _body()
+        tenant = _browse('m365.tenant', _int(body.get('tenant_id'), 'tenant_id'))
+        account = request.env['m365.ingram.account']._get_default()
+        if not account:
+            raise ValueError(_("No Ingram Micro account."))
+        lines = []
+        for line in body.get('lines') or []:
+            plan = request.env['m365.ingram.plan'].search([
+                ('account_id', '=', account.id), ('plan_id', '=', str(line.get('plan_id')))],
+                limit=1)
+            if not plan:
+                raise ValueError(_("Plan %s not found.", line.get('plan_id')))
+            lines.append((0, 0, {'plan_id': plan.id,
+                                 'quantity': _int(line.get('quantity'), 'quantity'),
+                                 'unit_price': plan.unit_price,
+                                 'currency_id': plan.currency_id.id}))
+        order = request.env['m365.ingram.order'].create({
+            'tenant_id': tenant.id, 'account_id': account.id, 'line_ids': lines,
+            'reason': body.get('reason') or False})
+        if body.get('submit', True):
+            order.action_submit()
+        return _order(order)
+
+    def _order_workflow(self, order_id, method, **write_vals):
+        _require_admin()
+        order = _browse('m365.ingram.order', order_id)
+        if write_vals:
+            order.write(write_vals)
+        result = getattr(order, method)()
+        data = _order(order)
+        if isinstance(result, dict) and result.get('params', {}).get('type') == 'danger':
+            data['error'] = result['params']['message']
+        return data
+
+    @http.route(API + '/orders/<int:order_id>/approve', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def order_approve(self, order_id, **kw):
+        return self._order_workflow(order_id, 'action_approve')
+
+    @http.route(API + '/orders/<int:order_id>/reject', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def order_reject(self, order_id, **kw):
+        return self._order_workflow(order_id, 'action_reject',
+                                    reject_reason=_body().get('reason') or False)
+
+    @http.route(API + '/orders/<int:order_id>/retry', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def order_retry(self, order_id, **kw):
+        return self._order_workflow(order_id, 'action_retry')
+
+    @http.route(API + '/orders/<int:order_id>/cancel', type='http', auth='bearer',
+                methods=['POST'], csrf=False)
+    @api_endpoint
+    def order_cancel(self, order_id, **kw):
+        """Cancel at Ingram Micro once sent, else in Odoo."""
+        order = _browse('m365.ingram.order', order_id)
+        method = ('action_cancel_at_ingram' if order.state in ('sent', 'confirmed')
+                  else 'action_cancel')
+        return self._order_workflow(order_id, method)
 
     # ------------------------------------------------------------------
     # Dashboard / audit

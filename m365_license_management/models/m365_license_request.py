@@ -5,10 +5,14 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from .m365_tenant import M365GraphError
 
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
+LICENSE_TYPES = ('assign', 'remove')
+# Remove MFA: need Enable Security Operations, a justification, never approved automatically
+MFA_TYPES = ('mfa_reset', 'mfa_disable')
 
 
 class M365LicenseRequest(models.Model):
-    """License assignment / removal request with approval and execution."""
+    """Request with approval and execution: license assignment / removal, MFA reset or
+    per-user MFA turned off."""
     _name = 'm365.license.request'
     _description = 'Microsoft 365 License Request'
     _inherit = ['mail.thread', 'mail.activity.mixin']
@@ -22,11 +26,17 @@ class M365LicenseRequest(models.Model):
     request_type = fields.Selection([
         ('assign', 'Assign License'),
         ('remove', 'Remove License'),
-    ], string="Operation", required=True, default='assign', tracking=True)
+        ('mfa_reset', 'Reset MFA'),
+        ('mfa_disable', 'Turn Off Per-user MFA'),
+    ], string="Operation", required=True, default='assign', tracking=True,
+        help="Reset MFA: every MFA method of the user is deleted; the user registers MFA "
+             "again at the next sign-in.\n"
+             "Turn Off Per-user MFA: the legacy per-user MFA of the user is disabled.")
     user_id = fields.Many2one('m365.license.user', string="Microsoft 365 User", required=True,
                               domain="[('tenant_id', '=', tenant_id)]", tracking=True)
-    sku_id = fields.Many2one('m365.sku', string="License", required=True,
-                             domain="[('tenant_id', '=', tenant_id)]", tracking=True)
+    sku_id = fields.Many2one('m365.sku', string="License",
+                             domain="[('tenant_id', '=', tenant_id)]", tracking=True,
+                             help="Required to assign or remove a license.")
     state = fields.Selection([
         ('draft', 'Draft'),
         ('submitted', 'Waiting Approval'),
@@ -45,6 +55,11 @@ class M365LicenseRequest(models.Model):
     executed_date = fields.Datetime(string="Executed On", readonly=True, copy=False)
     error_message = fields.Text(string="Error", readonly=True, copy=False)
     allow_operations = fields.Boolean(related='tenant_id.allow_license_operations')
+    allow_security_operations = fields.Boolean(
+        related='tenant_id.allow_security_operations')
+    is_mfa = fields.Boolean(compute='_compute_is_mfa')
+    can_buy = fields.Boolean(compute='_compute_can_buy',
+                             help="No license left: it can be bought from Ingram Micro.")
     company_id = fields.Many2one(related='tenant_id.company_id', store=True)
     is_admin = fields.Boolean(compute='_compute_is_admin')
 
@@ -53,6 +68,20 @@ class M365LicenseRequest(models.Model):
         is_admin = self.env.user.has_group(ADMIN_GROUP)
         for rec in self:
             rec.is_admin = is_admin
+
+    @api.depends('request_type')
+    def _compute_is_mfa(self):
+        for rec in self:
+            rec.is_mfa = rec.request_type in MFA_TYPES
+
+    @api.depends('request_type', 'sku_id.available_units', 'state')
+    @api.depends_context('uid')
+    def _compute_can_buy(self):
+        is_admin = self.env.user.has_group(ADMIN_GROUP)
+        for rec in self:
+            rec.can_buy = (is_admin and rec.request_type == 'assign' and rec.sku_id
+                           and rec.sku_id.available_units <= 0
+                           and rec.state in ('draft', 'failed'))
 
     # ------------------------------------------------------------------
     @api.model_create_multi
@@ -69,11 +98,25 @@ class M365LicenseRequest(models.Model):
         if self.sku_id and self.sku_id.tenant_id != self.tenant_id:
             self.sku_id = False
 
+    @api.onchange('request_type')
+    def _onchange_request_type(self):
+        if self.request_type in MFA_TYPES:
+            self.sku_id = False
+
     @api.constrains('tenant_id', 'user_id', 'sku_id')
     def _check_same_tenant(self):
         for rec in self:
-            if rec.user_id.tenant_id != rec.tenant_id or rec.sku_id.tenant_id != rec.tenant_id:
+            if (rec.user_id.tenant_id != rec.tenant_id
+                    or (rec.sku_id and rec.sku_id.tenant_id != rec.tenant_id)):
                 raise ValidationError(_("The user and the license must belong to the selected tenant."))
+
+    @api.constrains('request_type', 'sku_id')
+    def _check_license(self):
+        for rec in self:
+            if rec.request_type in LICENSE_TYPES and not rec.sku_id:
+                raise ValidationError(_("Select the license to assign or remove."))
+            if rec.request_type in MFA_TYPES and rec.sku_id:
+                raise ValidationError(_("An MFA request has no license."))
 
     def _check_admin(self):
         if not self.env.user.has_group(ADMIN_GROUP):
@@ -84,6 +127,8 @@ class M365LicenseRequest(models.Model):
     # ------------------------------------------------------------------
     def _validate_request(self):
         self.ensure_one()
+        if self.request_type in MFA_TYPES:
+            return self._validate_mfa_request()
         if not self.tenant_id.allow_license_operations:
             raise UserError(_("License operations are disabled for tenant %s.", self.tenant_id.name))
         if self.tenant_id.state == 'draft':
@@ -109,6 +154,24 @@ class M365LicenseRequest(models.Model):
         if duplicate:
             raise UserError(_("A similar request is already pending for this user and license."))
 
+    def _validate_mfa_request(self):
+        self.ensure_one()
+        tenant = self.tenant_id
+        if not tenant.allow_security_operations:
+            raise UserError(_("Security operations are disabled for tenant %s.", tenant.name))
+        if tenant.state == 'draft':
+            raise UserError(_("Test the connection of tenant %s first.", tenant.name))
+        if not (self.reason or '').strip():
+            raise UserError(_("Give the business justification of the MFA operation."))
+        # sudo: the requests of other users are hidden by the record rules
+        duplicate = self.sudo().search_count([
+            ('id', '!=', self.id), ('tenant_id', '=', tenant.id),
+            ('user_id', '=', self.user_id.id), ('request_type', '=', self.request_type),
+            ('state', 'in', ('submitted', 'approved')),
+        ])
+        if duplicate:
+            raise UserError(_("A similar request is already pending for this user."))
+
     # ------------------------------------------------------------------
     # Workflow
     # ------------------------------------------------------------------
@@ -122,7 +185,8 @@ class M365LicenseRequest(models.Model):
             rec.tenant_id._log('request', 'info', _("%(ref)s submitted by %(user)s.",
                                                     ref=rec.name, user=self.env.user.name),
                                request=rec)
-            if rec.tenant_id.auto_approve_admins and self.env.user.has_group(ADMIN_GROUP):
+            if (rec.request_type not in MFA_TYPES and rec.tenant_id.auto_approve_admins
+                    and self.env.user.has_group(ADMIN_GROUP)):
                 rec.action_approve()
                 continue
             # route to IT administrators
@@ -133,9 +197,7 @@ class M365LicenseRequest(models.Model):
                 rec.sudo().activity_schedule(
                     'mail.mail_activity_data_todo', user_id=admin.id,
                     summary=_("Approve license request %s", rec.name),
-                    note=_("%(type)s - %(user)s - %(sku)s",
-                           type=dict(rec._fields['request_type'].selection)[rec.request_type],
-                           user=rec.user_id.name, sku=rec.sku_id.name))
+                    note=rec._summary())
         return True
 
     def action_approve(self):
@@ -174,12 +236,22 @@ class M365LicenseRequest(models.Model):
                 rec.write({'state': 'draft', 'error_message': False, 'approver_id': False})
         return True
 
+    def _summary(self):
+        self.ensure_one()
+        operation = dict(self._fields['request_type'].selection)[self.request_type]
+        if self.sku_id:
+            return _("%(type)s - %(user)s - %(sku)s", type=operation, user=self.user_id.name,
+                     sku=self.sku_id.name)
+        return _("%(type)s - %(user)s", type=operation, user=self.user_id.name)
+
     # ------------------------------------------------------------------
     # Execution against Microsoft Graph
     # ------------------------------------------------------------------
     def _execute(self):
         """Run an approved request. Failures are stored, never raised."""
         self.ensure_one()
+        if self.request_type in MFA_TYPES:
+            return self._execute_mfa()
         tenant, sku, user = self.tenant_id, self.sku_id, self.user_id
         action = 'assign_license' if self.request_type == 'assign' else 'remove_license'
         try:
@@ -209,6 +281,41 @@ class M365LicenseRequest(models.Model):
         except M365GraphError:
             pass  # the operation itself succeeded; the scheduled sync will catch up
         return True
+
+    def _execute_mfa(self):
+        """Run an approved MFA request. Failures are stored, never raised."""
+        self.ensure_one()
+        tenant, user, action = self.tenant_id, self.user_id, self.request_type
+        try:
+            tenant._check_security_operations_allowed()
+            if action == 'mfa_reset':
+                removed, left = tenant.graph_reset_mfa(user.graph_id)
+                done = ", ".join("%s %s" % (m['type'], m['detail']) for m in removed).strip()
+                if left:
+                    raise M365GraphError(_(
+                        "Removed: %(done)s. Not removed: %(left)s",
+                        done=done or _("none"),
+                        left="; ".join("%s %s (%s)" % (m['type'], m['detail'], err)
+                                       for m, err in left)))
+                result = _("%(ref)s - MFA of %(user)s reset; removed: %(done)s.",
+                           ref=self.name, user=user.name, done=done or _("no method"))
+            else:
+                tenant.graph_set_per_user_mfa(user.graph_id, 'disabled')
+                result = _("%(ref)s - per-user MFA of %(user)s turned off.",
+                           ref=self.name, user=user.name)
+        except M365GraphError as exc:
+            self.write({'state': 'failed', 'error_message': str(exc)})
+            tenant._log(action, 'failed', _("%(ref)s - %(user)s: %(err)s", ref=self.name,
+                                            user=user.name, err=exc), request=self)
+            return False
+        self.write({'state': 'done', 'executed_date': fields.Datetime.now(),
+                    'error_message': False})
+        tenant._log(action, 'success', result, request=self)
+        return True
+
+    def action_buy_licenses(self):
+        self.ensure_one()
+        return self.sku_id.action_buy_licenses()
 
     # ------------------------------------------------------------------
     # Dashboard entry point

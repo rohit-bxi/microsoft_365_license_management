@@ -60,6 +60,11 @@
                             <field name="default_language"/>
                             <field name="enable_gdap"/>
                         </group>
+                        <group string="Shared App for Customer Tenants (Microsoft Graph)">
+                            <field name="graph_client_id"/>
+                            <field name="graph_client_secret" password="True"/>
+                            <field name="consent_redirect_uri" widget="CopyClipboardChar"/>
+                        </group>
                     </group>
                     <notebook>
                         <page string="Endpoints" name="endpoints">
@@ -90,6 +95,42 @@
                                 <p class="text-muted">Use an integration sandbox account first:
                                    customers created in production are real tenants and cannot
                                    be deleted from Odoo.</p>
+                                <h4>4. Shared app for the customer tenants</h4>
+                                <p>To connect the tenants without an app registration in each
+                                   one, register a <b>multi-tenant</b> app in your partner tenant
+                                   (Entra admin center &#8594; App registrations &#8594;
+                                   <i>Accounts in any organizational directory</i>), or make the
+                                   app above multi-tenant:</p>
+                                <ul>
+                                    <li>Add the <b>Redirect URI</b> shown above (platform
+                                        <i>Web</i>). Odoo must be reachable at this address
+                                        from the browser of the administrator.</li>
+                                    <li>Add the Microsoft Graph <i>application</i> permissions
+                                        of the features you use:
+                                <ul>
+                                    <li><b>Inventory and users:</b> <code>Organization.Read.All</code>
+                                        and <code>User.Read.All</code>.</li>
+                                    <li><b>License operations and user creation:</b>
+                                        <code>LicenseAssignment.ReadWrite.All</code> and
+                                        <code>User.ReadWrite.All</code>.</li>
+                                    <li><b>Configuration and domains:</b>
+                                        <code>Policy.Read.All</code>,
+                                        <code>Policy.ReadWrite.ConditionalAccess</code> (Security
+                                        Defaults), <code>Domain.ReadWrite.All</code> and
+                                        <code>Organization.ReadWrite.All</code> (technical
+                                        contact).</li>
+                                    <li><b>Security operations:</b>
+                                        <code>UserAuthenticationMethod.ReadWrite.All</code> (MFA
+                                        methods, Temporary Access Pass) and
+                                        <code>Policy.ReadWrite.AuthenticationMethod</code>
+                                        (per-user MFA, Temporary Access Pass policy).</li>
+                                </ul>
+                                    </li>
+                                    <li>Create a client secret and enter the application ID and
+                                        the secret here.</li>
+                                </ul>
+                                <p>Then press <b>Grant Consent</b> on each tenant. A permission
+                                   added later needs a new consent in each tenant.</p>
                             </div>
                         </page>
                     </notebook>

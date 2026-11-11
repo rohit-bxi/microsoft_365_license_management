@@ -24,6 +24,11 @@ from .m365_tenant import M365GraphError
 
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 PC_APPLICATION = 'Odoo Microsoft 365 License Management'
+# Changing one invalidates the Partner Center token
+CREDENTIAL_FIELDS = {'partner_tenant_id', 'client_id', 'client_secret', 'authority_url',
+                     'api_scope'}
+# Changing one invalidates the tokens of the tenants connected through the shared app
+SHARED_APP_FIELDS = {'graph_client_id', 'graph_client_secret'}
 
 
 class M365PartnerCenterTimeout(M365GraphError):
@@ -74,17 +79,57 @@ class M365PartnerAccount(models.Model):
                                  string="Customer Tenants")
     tenant_count = fields.Integer(compute='_compute_tenant_count')
 
+    # Shared multi-tenant app: tenants connected through it need no app registration of
+    # their own (see models/m365_tenant_consent.py)
+    graph_client_id = fields.Char(
+        string="Shared App: Application (Client) ID", copy=False, tracking=True,
+        help="Multi-tenant Microsoft Entra app of your partner tenant (Accounts in any "
+             "organizational directory) with the Microsoft Graph application permissions. "
+             "Each tenant grants it admin consent once (Grant Consent on the tenant). It "
+             "can be the app above if that one is multi-tenant.")
+    graph_client_secret = fields.Char(string="Shared App: Client Secret", copy=False,
+                                      groups=ADMIN_GROUP)
+    consent_redirect_uri = fields.Char(
+        string="Shared App: Redirect URI", compute='_compute_consent_redirect_uri',
+        help="Add this address to the redirect URIs (platform Web) of the shared app.")
+
     @api.depends('tenant_ids')
     def _compute_tenant_count(self):
         for rec in self:
             rec.tenant_count = len(rec.tenant_ids)
 
+    def _compute_consent_redirect_uri(self):
+        uri = self.env['m365.tenant']._consent_redirect_uri()
+        for rec in self:
+            rec.consent_redirect_uri = uri
+
     def write(self, vals):
         # Changing the credentials invalidates the cached token
-        if {'partner_tenant_id', 'client_id', 'client_secret', 'authority_url',
-                'api_scope'} & set(vals):
-            vals = dict(vals, access_token=False, token_expiry=False, state='draft')
-        return super().write(vals)
+        reset = bool(CREDENTIAL_FIELDS & set(vals))
+        if reset:
+            vals = dict(vals, state='draft')
+        res = super().write(vals)
+        if reset:
+            # Restricted to system administrators, which Microsoft 365 administrators may
+            # not be
+            self.sudo().write({'access_token': False, 'token_expiry': False})
+        if SHARED_APP_FIELDS & set(vals):
+            # The tenants connected through the shared app need a token of the new app
+            self.env['m365.tenant'].sudo().with_context(active_test=False).search([
+                ('partner_account_id', 'in', self.ids),
+                ('connection_mode', '=', 'shared_app'),
+            ])._clear_token()
+        return res
+
+    def _shared_app_credentials(self):
+        """(client ID, client secret) of the shared multi-tenant app."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not (rec.graph_client_id and rec.graph_client_secret):
+            raise M365GraphError(_(
+                "Enter the application ID and the client secret of the shared app on the "
+                "Partner Center account %s.", rec.name))
+        return rec.graph_client_id.strip(), rec.graph_client_secret.strip()
 
     # ------------------------------------------------------------------
     # Partner Center client

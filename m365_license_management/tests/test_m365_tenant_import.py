@@ -287,3 +287,26 @@ class TestM365TenantImport(TransactionCase):
         wizard.write({'file': wizard.template_file, 'filename': 'template.xlsx'})
         wizard.action_validate()
         self.assertEqual((wizard.line_count, wizard.error_count), (1, 0))
+
+    def test_shared_app_rows(self):
+        """Connection column: tenants connected later through the shared app."""
+        header = 'Tenant Name,Primary Domain,Directory (Tenant) ID,Application (Client) ID,Connection\n'
+        wizard = self._wizard(header
+                              + 'Shared,shared.com,%s,,Shared App\n' % GUID_1
+                              + 'Own,own.com,%s,,\n' % GUID_2
+                              + 'Bad,bad.com,%s,,Somebody else\n' % GUID_3)
+        wizard.action_validate()
+        shared, own, bad = wizard.line_ids
+        self.assertIn('add the shared app to a Partner Center account', shared.message)
+        self.assertEqual(own.message, 'Application (Client) ID is required.')
+        self.assertIn('is not a connection', bad.message)
+
+        self.account.write({'graph_client_id': 'shared-cid', 'graph_client_secret': 'shared'})
+        wizard = self._wizard('Tenant Name,Primary Domain,Directory (Tenant) ID,Connection\n'
+                              'Shared,shared.com,%s,shared\n' % GUID_1)
+        wizard.action_validate()
+        self.assertEqual(wizard.line_ids.status, 'valid', wizard.line_ids.message)
+        wizard.action_import()
+        tenant = self.env['m365.tenant'].search([('tenant_id', '=', GUID_1)])
+        self.assertEqual((tenant.connection_mode, tenant.partner_account_id, tenant.client_id),
+                         ('shared_app', self.account, False))

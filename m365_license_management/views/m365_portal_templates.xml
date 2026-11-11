@@ -216,6 +216,13 @@
                     <i class="fa fa-plug me-1"/>Connect
                 </a>
                 <t t-call="m365_license_management.portal_m365_step_button">
+                    <t t-set="step" t-value="'consent'"/>
+                    <t t-set="label">Grant Consent</t>
+                    <t t-set="icon" t-value="'fa-check-square-o'"/>
+                    <t t-set="btn_class" t-value="'btn-secondary' if tenant.state == 'connected' else 'btn-primary'"/>
+                    <t t-set="onclick">return confirm('Sign in with a Global Administrator of the tenant on the Microsoft page that opens and accept: the tenant is then connected without an app registration.')</t>
+                </t>
+                <t t-call="m365_license_management.portal_m365_step_button">
                     <t t-set="step" t-value="'test'"/>
                     <t t-set="label">Test Connection</t>
                     <t t-set="icon" t-value="'fa-refresh'"/>

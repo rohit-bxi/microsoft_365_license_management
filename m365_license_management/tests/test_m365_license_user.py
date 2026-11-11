@@ -34,9 +34,12 @@ class TestM365LicenseUser(M365Common):
         # Deleted in Microsoft Entra ID: archived
         self.assertFalse(self.adele.active)
         self.assertTrue(self.adele.last_sync)
-        with patch(GRAPH_PATH, side_effect=M365GraphError('HTTP 403 - Forbidden')), \
-                self.assertRaisesRegex(M365GraphError, 'HTTP 403'):
-            self.megan.action_refresh_from_graph()
+        with patch(GRAPH_PATH, side_effect=M365GraphError('HTTP 403 - Forbidden')):
+            action = self.megan.action_refresh_from_graph()
+        # A notification: the audit log line of the failure is kept
+        self.assertEqual(action['params']['type'], 'danger')
+        self.assertIn('HTTP 403', action['params']['message'])
+        self.assertEqual(self._logs('refresh_user')[0].status, 'failed')
         self.assertTrue(self.megan.active)
 
     def test_admin_only_actions(self):
@@ -61,6 +64,12 @@ class TestM365LicenseUser(M365Common):
         with patch(GRAPH_PATH, side_effect=M365GraphError('HTTP 403 - Forbidden')), \
                 self.assertRaises(M365GraphError):
             self.adele.set_usage_location('FR')
+        self.assertEqual(self.adele.usage_location, 'DE')
+        wizard.country_id = self.env.ref('base.fr')
+        with patch(GRAPH_PATH, side_effect=M365GraphError('HTTP 403 - Forbidden')):
+            action = wizard.action_apply()
+        self.assertEqual(action['params']['type'], 'danger')
+        self.assertEqual(self._logs('update_user')[0].status, 'failed')
         self.assertEqual(self.adele.usage_location, 'DE')
 
     def test_live_license_details(self):

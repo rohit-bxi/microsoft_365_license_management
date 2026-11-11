@@ -24,6 +24,32 @@ def graph_stub(method, path, params=None, json_body=None, paginate=False):
     return [] if paginate else {}
 
 
+class FakeGraph:
+    """Microsoft Graph answering from routes and recording the calls.
+
+    ``routes`` maps ``(method, path)`` or ``path`` to the result: a value, an exception to
+    raise or a function of the JSON body. Other calls answer like ``graph_stub``.
+    """
+
+    def __init__(self, routes=None):
+        self.routes = dict(routes or {})
+        self.calls = []
+
+    def __call__(self, method, path, params=None, json_body=None, paginate=False):
+        self.calls.append((method, path, json_body))
+        for key in ((method, path), path):
+            if key in self.routes:
+                result = self.routes[key]
+                if isinstance(result, Exception):
+                    raise result
+                return result(json_body) if callable(result) else result
+        return graph_stub(method, path, params, json_body, paginate)
+
+    def bodies(self, method, path=None):
+        """JSON bodies of the calls with this method (and path)."""
+        return [body for m, p, body in self.calls if m == method and path in (None, p)]
+
+
 def http_response(status=200, payload=None, headers=None):
     """A ``requests.Response`` with a JSON (or raw bytes) body."""
     resp = requests.Response()

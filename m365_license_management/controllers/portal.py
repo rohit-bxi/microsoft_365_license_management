@@ -277,7 +277,7 @@ class M365TenantPortal(CustomerPortal):
         return self._m365_edit(tenant, tenant.tenant_type == 'new' and 'connection'
                                or 'existing')
 
-    @http.route(URL + '/<int:tenant_id>/<any(check,create,reset,test,remove,password):step>',
+    @http.route(URL + '/<int:tenant_id>/<any(check,create,reset,test,remove,password,consent):step>',
                 type='http', auth='user', website=True, methods=['POST'])
     @m365_portal
     def portal_m365_tenant_step(self, tenant_id, step, **kw):
@@ -291,6 +291,9 @@ class M365TenantPortal(CustomerPortal):
             tenant._portal_remove()
             self._m365_message(_("Tenant %s removed.", tenant.name))
             return request.redirect(URL)
+        if step == 'consent':
+            # Microsoft admin consent page; it comes back to /m365/consent/callback
+            return request.redirect(tenant._portal_grant_consent(), local=False)
         {
             'check': tenant._portal_check,
             'create': tenant._portal_create_in_microsoft,

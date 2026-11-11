@@ -12,6 +12,12 @@ GUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 DOMAIN_RE = re.compile(r'^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',
                        re.I)
 TRUE_VALUES = ('1', 'true', 'yes', 'y')
+CONNECTION_VALUES = {
+    'own_app': 'own_app', 'own app': 'own_app', 'own': 'own_app',
+    'own app registration': 'own_app', 'app registration': 'own_app',
+    'shared_app': 'shared_app', 'shared app': 'shared_app', 'shared': 'shared_app',
+    'partner app': 'shared_app',
+}
 FALSE_VALUES = ('0', 'false', 'no', 'n')
 TEMPLATE_NAME = 'm365_tenant_import_template.xlsx'
 
@@ -21,8 +27,10 @@ COLUMNS = [
     ('name', 'text', True),
     ('domain', 'domain', True),
     ('tenant_id', 'guid', True),
-    ('client_id', 'guid', True),
+    # Required for the own app registration (default), not for the shared app
+    ('client_id', 'guid', False),
     ('client_secret', 'text', False),
+    ('connection_mode', 'connection', False),
     ('authority_url', 'url', False),
     ('graph_url', 'url', False),
     ('graph_scope', 'url', False),
@@ -80,19 +88,21 @@ NEW_COLUMNS = [
     ('culture', 'text', False),
     ('language', 'text', False),
     ('organization_registration_number', 'text', False),
+    ('requested_subscriptions', 'text', False),
 ]
 NEW_HEADERS = {
     'name': 'CompanyName', 'domain': 'Domain', 'contact_first_name': 'FirstName',
     'contact_last_name': 'LastName', 'contact_email': 'Email', 'contact_phone': 'PhoneNumber',
     'address_line1': 'AddressLine1', 'address_line2': 'AddressLine2', 'city': 'City',
     'address_state': 'State', 'postal_code': 'PostalCode', 'country_id': 'Country',
+    'requested_subscriptions': 'Subscriptions',
     'culture': 'Culture', 'language': 'Language',
     'organization_registration_number': 'OrganizationRegistrationNumber',
 }
 NEW_TEMPLATE_NAME = 'm365_customers_template.xlsx'
 NEW_SAMPLE = ('Contoso Ltd', 'contosoltd', 'Adele', 'Vance', 'adele.vance@contoso.com',
               '+91 80 4000 1000', '1 MG Road', '', 'Bengaluru', 'KA', '560001', 'IN',
-              'en-IN', 'en', 'U72900KA2020PTC000000')
+              'en-IN', 'en', 'U72900KA2020PTC000000', 'Microsoft 365 Business Basic = 10')
 
 
 class M365TenantImportWizard(models.TransientModel):
@@ -168,6 +178,10 @@ class M365TenantImportWizard(models.TransientModel):
                 allowed=", ".join(self._column_title(f) for f, _k, _r in columns)))
         missing = [self._column_title(f) for f, _k, required in columns
                    if required and f not in mapping.values()]
+        if (self.tenant_type == 'existing' and 'client_id' not in mapping.values()
+                and 'connection_mode' not in mapping.values()):
+            # Own app registration unless the file says Shared App
+            missing.append(self._column_title('client_id'))
         if missing:
             raise UserError(_("Missing required column(s): %s.", ", ".join(missing)))
         return mapping
@@ -211,6 +225,11 @@ class M365TenantImportWizard(models.TransientModel):
             if number < 0 or not number.is_integer():
                 raise ValueError(_("%s must be a whole number of 0 or more.", text))
             return int(number)
+        if kind == 'connection':
+            mode = CONNECTION_VALUES.get(' '.join(text.lower().split()))
+            if not mode:
+                raise ValueError(_("\"%s\" is not a connection: Own App or Shared App.", text))
+            return mode
         if kind == 'company':
             company = lookups['company'].get(text.lower())
             if not company:
@@ -254,6 +273,14 @@ class M365TenantImportWizard(models.TransientModel):
             defaults.update(tenant_type='new', partner_account_id=account.id,
                             culture=account.default_culture,
                             language=account.default_language, enable_gdap=account.enable_gdap)
+        cache = {}
+
+        def shared_account():
+            if 'account' not in cache:
+                cache['account'] = self.env['m365.partner.account'].search(
+                    [('graph_client_id', '!=', False)], limit=1)
+            return cache['account']
+
         # The unique constraint is global: also check archived / other company tenants
         tenants = Tenant.sudo().with_context(active_test=False).search([])
         existing = {fname: {(value or '').lower() for value in tenants.mapped(fname)}
@@ -274,6 +301,18 @@ class M365TenantImportWizard(models.TransientModel):
                 except ValueError as exc:
                     invalid.add(label)
                     errors.append(_("%(field)s: %(error)s", field=label, error=exc))
+            if self.tenant_type == 'existing':
+                if vals.get('connection_mode') == 'shared_app':
+                    # Connected later with Grant Consent: no app registration of its own
+                    account = shared_account()
+                    if account:
+                        vals['partner_account_id'] = account.id
+                    else:
+                        errors.append(_("Connection Shared App: add the shared app to a "
+                                        "Partner Center account first."))
+                elif not vals.get('client_id') and \
+                        Tenant._fields['client_id'].string not in invalid:
+                    errors.append(_("%s is required.", Tenant._fields['client_id'].string))
             if self.tenant_type == 'new':
                 # The checks of the Check button, without repeating the errors above
                 skip = set(errors) | {_("%s is required.", label) for label in invalid}
@@ -323,6 +362,30 @@ class M365TenantImportWizard(models.TransientModel):
         }) for row in parsed]
         return self._reopen()
 
+    def _link_customers(self, tenants):
+        """Each new tenant belongs to the Odoo customer of the same name (created with the
+        address and contact of the row when there is none)."""
+        Customer = self.env['customer.customer']
+        for tenant in tenants.filtered(lambda t: not t.tenant_customer_id):
+            customer = Customer.search([('name', '=ilike', tenant.name),
+                                        ('parent_id', '=', False)], limit=1)
+            if not customer:
+                customer = Customer.create({
+                    'name': tenant.name, 'email': tenant.contact_email or False,
+                    'phone': tenant.contact_phone or False,
+                    'street': tenant.address_line1 or False,
+                    'street2': tenant.address_line2 or False, 'city': tenant.city or False,
+                    'zip': tenant.postal_code or False,
+                    'country_id': tenant.country_id.id or False,
+                })
+                contact = " ".join(filter(None, (tenant.contact_first_name,
+                                                 tenant.contact_last_name)))
+                if contact:
+                    Customer.create({'name': contact, 'parent_id': customer.id,
+                                     'email': tenant.contact_email or False,
+                                     'phone': tenant.contact_phone or False})
+            tenant.tenant_customer_id = customer
+
     def action_import(self):
         self.ensure_one()
         if not self.line_ids:
@@ -338,6 +401,8 @@ class M365TenantImportWizard(models.TransientModel):
         if self.error_count:
             raise UserError(_("Validate the file again before creating the tenants."))
         tenants = self.env['m365.tenant'].create([row['vals'] for row in parsed])
+        if self.tenant_type == 'new':
+            self._link_customers(tenants)
         for tenant in tenants:
             tenant._message_log(body=_("Tenant created by bulk import from %s.",
                                        self.filename))

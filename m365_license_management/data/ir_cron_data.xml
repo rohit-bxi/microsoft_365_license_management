@@ -66,4 +66,81 @@
         <field name="interval_type">hours</field>
         <field name="active" eval="True"/>
     </record>
+
+    <record id="ir_cron_m365_ingram_events" model="ir.cron">
+        <field name="name">Microsoft 365: Process Ingram Micro Events</field>
+        <field name="model_id" ref="model_m365_ingram_event"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_process()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_ingram_deliveries" model="ir.cron">
+        <field name="name">Microsoft 365: Check License Order Deliveries</field>
+        <field name="model_id" ref="model_m365_ingram_order"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_check_deliveries()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_ingram_billing" model="ir.cron">
+        <field name="name">Microsoft 365: Synchronise Ingram Micro Invoices and Renewals</field>
+        <field name="model_id" ref="model_m365_ingram_account"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_sync_billing()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_ingram_events_cleanup" model="ir.cron">
+        <field name="name">Microsoft 365: Purge Old Ingram Micro Events</field>
+        <field name="model_id" ref="model_m365_ingram_event"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_gdap" model="ir.cron">
+        <field name="name">Microsoft 365: Refresh GDAP Status</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_refresh_gdap()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_pc_orders" model="ir.cron">
+        <field name="name">Microsoft 365: Follow Partner Center Orders</field>
+        <field name="model_id" ref="model_m365_pc_order"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_check_progress()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_verify_licenses" model="ir.cron">
+        <field name="name">Microsoft 365: Verify Assigned Licenses</field>
+        <field name="model_id" ref="model_m365_license_request"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_verify()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>
