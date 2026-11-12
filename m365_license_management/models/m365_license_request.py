@@ -134,6 +134,10 @@ class M365LicenseRequest(models.Model):
         if self.tenant_id.state == 'draft':
             raise UserError(_("Test the connection of tenant %s first.", self.tenant_id.name))
         has_license = self.sku_id in self.user_id.sku_ids
+        if self.request_type == 'assign' and (self.sku_id.applies_to or 'User') != 'User':
+            raise UserError(_("%(sku)s is a license of the whole tenant (applies to "
+                              "%(scope)s): Microsoft 365 does not assign it to users.",
+                              sku=self.sku_id.name, scope=self.sku_id.applies_to))
         if self.request_type == 'assign':
             if has_license:
                 raise UserError(_("%(user)s already has %(sku)s.",

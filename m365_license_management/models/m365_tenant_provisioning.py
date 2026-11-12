@@ -51,7 +51,12 @@ STEP_NEEDS = {
 }
 # Service plan statuses meaning "not provisioned"
 PLAN_ERRORS = ('Error', 'ErrorStatus')
-PLAN_PENDING = ('PendingInput', 'PendingActivation', 'PendingProvisioning')
+PLAN_PENDING = ('PendingProvisioning',)
+# Waiting for something to be set up in the tenant (e.g. INTUNE_O365 until Intune is
+# configured): the license is assigned, so they are reported without blocking
+PLAN_WAITING = ('PendingInput', 'PendingActivation')
+# Service plans still provisioning after this delay are reported, not waited for any more
+PLAN_PENDING_LIMIT = timedelta(hours=24)
 VERIFY_AFTER = timedelta(minutes=2)
 # A result different from the request is reported only after this delay: Microsoft 365
 # can take a while to apply a license change
@@ -130,8 +135,9 @@ class M365LicenseRequestVerification(models.Model):
                 tenant._log('verify_license', 'failed', "%s: %s" % (rec.name, exc),
                             request=rec)
                 continue
-            problems, pending, definitive = [], [], False
-            if not item.get('accountEnabled', True):
+            problems, pending, notes, definitive = [], [], [], False
+            if rec.request_type == 'assign' and not item.get('accountEnabled', True):
+                # Removing the licenses of a disabled account (a leaver) is normal
                 problems.append(_("The user account is disabled."))
                 definitive = True
             found = [d for d in details if (d.get('sku_id') or '').lower() == sku.sku_id.lower()]
@@ -149,6 +155,8 @@ class M365LicenseRequestVerification(models.Model):
                                           plan=plan.get('name'), status=status))
                     elif status in PLAN_PENDING:
                         pending.append(plan.get('name'))
+                    elif status in PLAN_WAITING:
+                        notes.append("%s (%s)" % (plan.get('name'), status))
             elif found:
                 problems.append(_("%(sku)s is still assigned%(how)s.", sku=sku.name, how=_(
                     " through group(s) %s: remove the user from the group, or the license "
@@ -161,14 +169,19 @@ class M365LicenseRequestVerification(models.Model):
                             " ".join(problems))
             elif problems:
                 state, message = 'mismatch', " ".join(problems)
-            elif pending:
+            elif pending and not (rec.executed_date
+                                  and rec.executed_date < now - PLAN_PENDING_LIMIT):
                 state = 'pending'
                 message = _("Service plans still being provisioned: %s", ", ".join(pending))
             else:
                 state = 'verified'
-                message = _("User enabled; %(sku)s %(what)s.", sku=sku.name,
-                            what=_("assigned") if rec.request_type == 'assign'
-                            else _("removed"))
+                message = (_("%s assigned.", sku.name) if rec.request_type == 'assign'
+                           else _("%s removed.", sku.name))
+                if pending:
+                    notes += ["%s (%s)" % (name, _("still provisioning")) for name in pending]
+                if notes:
+                    message += " " + _("Service plans waiting for the tenant: %s.",
+                                       ", ".join(notes))
             rec.write({'verification_state': state, 'verification_message': message,
                        'verification_date': fields.Datetime.now()})
             tenant._log('verify_license', 'failed' if state == 'mismatch' else 'success',
