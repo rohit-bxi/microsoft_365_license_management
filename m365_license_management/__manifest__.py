@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.9.1',
+    'version': '19.0.1.9.2',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment, tenant setup, MFA operations and Ingram Micro '

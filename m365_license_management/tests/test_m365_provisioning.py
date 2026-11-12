@@ -11,8 +11,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tests import HttpCase, new_test_user, tagged
 
 from ..models.m365_tenant import M365GraphError
-from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, MODELS, USER_GROUP, USER_ID, FakeGraph,
-                     M365Common, http_response, map_tenants)
+from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, MODELS, USER_GROUP, USER_ID, USER_ID_2,
+                     FakeGraph, M365Common, http_response, map_tenants)
 
 PC_PATH = MODELS + '.m365_partner_account.M365PartnerAccount._pc_request'
 PARTNER_GRAPH = MODELS + '.m365_tenant_gdap.M365PartnerAccountGraph._partner_graph_request'
@@ -334,6 +334,46 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
         self.assertIn('through group(s) group-1', remove.verification_message)
         self.assertEqual(self.tenant.prov_verification, 'failed')
         self.assertTrue(old.exists())
+
+    def test_verification_leavers_and_waiting_plans(self):
+        Request = self.env['m365.license.request']
+        long_ago = fields.Datetime.now() - timedelta(hours=2)
+        remove = Request.create({'tenant_id': self.tenant.id, 'user_id': self.megan.id,
+                                 'sku_id': self.sku.id, 'state': 'done',
+                                 'request_type': 'remove', 'executed_date': long_ago})
+        assign = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                                 'sku_id': self.sku.id, 'state': 'done',
+                                 'executed_date': long_ago})
+        graph = FakeGraph({
+            '/users/%s' % USER_ID_2: {'id': USER_ID_2, 'accountEnabled': False},
+            '/users/%s/licenseDetails' % USER_ID_2: [],
+            '/users/%s' % USER_ID: {'id': USER_ID, 'accountEnabled': True},
+            '/users/%s/licenseDetails' % USER_ID: [{'skuId': GUID_A, 'servicePlans': [
+                {'servicePlanName': 'INTUNE_O365', 'provisioningStatus': 'PendingActivation'},
+                {'servicePlanName': 'EXCHANGE_S_STANDARD', 'provisioningStatus': 'Success'}]}],
+        })
+        with patch(GRAPH_PATH, side_effect=graph):
+            (remove | assign)._verify()
+        # The licenses of a disabled account (a leaver) can be removed
+        self.assertEqual(remove.verification_state, 'verified')
+        # A plan waiting for the tenant (Intune not set up) does not block the license
+        self.assertEqual(assign.verification_state, 'verified')
+        self.assertIn('INTUNE_O365 (PendingActivation)', assign.verification_message)
+        # Still provisioning more than 24 hours after: reported, not waited for
+        graph.routes['/users/%s/licenseDetails' % USER_ID][0]['servicePlans'][0][
+            'provisioningStatus'] = 'PendingProvisioning'
+        assign.executed_date = fields.Datetime.now() - timedelta(hours=25)
+        with patch(GRAPH_PATH, side_effect=graph):
+            assign._verify()
+        self.assertEqual(assign.verification_state, 'verified')
+        self.assertIn('still provisioning', assign.verification_message)
+
+    def test_tenant_license_not_for_users(self):
+        self.sku.applies_to = 'Company'
+        request = self.env['m365.license.request'].create({
+            'tenant_id': self.tenant.id, 'user_id': self.adele.id, 'sku_id': self.sku.id})
+        with self.assertRaisesRegex(UserError, 'license of the whole tenant'):
+            request.action_submit()
 
     def test_steps_and_next(self):
         """Steps in order: tenant, GDAP, agreement, connection, domains, subscriptions,
