@@ -53,6 +53,10 @@ STEP_NEEDS = {
 PLAN_ERRORS = ('Error', 'ErrorStatus')
 PLAN_PENDING = ('PendingInput', 'PendingActivation', 'PendingProvisioning')
 VERIFY_AFTER = timedelta(minutes=2)
+# A result different from the request is reported only after this delay: Microsoft 365
+# can take a while to apply a license change
+PROPAGATION_DELAY = timedelta(minutes=30)
+LICENSE_TYPES = ('assign', 'remove')
 SUBSCRIPTION_SPLIT_RE = re.compile(r'[;\n]')
 SUBSCRIPTION_LINE_RE = re.compile(r'^(?P<offer>.+?)\s*(?:=|\sx\s|\sX\s)\s*(?P<qty>\d+)\s*$')
 # Automatic run
@@ -73,19 +77,51 @@ class M365LicenseRequestVerification(models.Model):
         ('pending', 'Provisioning'),
         ('mismatch', 'Mismatch'),
         ('error', 'Not Verified'),
+        ('superseded', 'Superseded'),
     ], string="Verification", readonly=True, copy=False, index=True,
         help="Result of the check in Microsoft 365 after the request was executed.")
     verification_date = fields.Datetime(string="Verified On", readonly=True, copy=False)
     verification_message = fields.Text(string="Verification Details", readonly=True,
                                        copy=False)
 
+    def _superseded_by(self):
+        """Later executed request on the same user and license: the result of this one is
+        not expected in Microsoft 365 any more."""
+        self.ensure_one()
+        return self.sudo().search([
+            ('id', '>', self.id), ('tenant_id', '=', self.tenant_id.id),
+            ('user_id', '=', self.user_id.id), ('sku_id', '=', self.sku_id.id),
+            ('request_type', 'in', LICENSE_TYPES), ('state', '=', 'done')],
+            order='id', limit=1)
+
+    @staticmethod
+    def _assignment_notes(item, sku_guid):
+        """(groups assigning the license, assignment errors) from licenseAssignmentStates."""
+        groups, errors = [], []
+        for state in item.get('licenseAssignmentStates') or []:
+            if (state.get('skuId') or '').lower() != sku_guid:
+                continue
+            if state.get('assignedByGroup'):
+                groups.append(state['assignedByGroup'])
+            if (state.get('error') or 'None') != 'None':
+                errors.append(state['error'])
+        return groups, errors
+
     def _verify(self):
         """Check the result of an executed license request in Microsoft 365."""
+        now = fields.Datetime.now()
         for rec in self.filtered(lambda r: r.state == 'done'
-                                 and r.request_type in ('assign', 'remove')):
+                                 and r.request_type in LICENSE_TYPES):
             tenant, user, sku = rec.tenant_id, rec.user_id, rec.sku_id
+            later = rec._superseded_by()
+            if later:
+                rec.write({'verification_state': 'superseded', 'verification_date': now,
+                           'verification_message': _(
+                               "Changed afterwards by %s: not checked.", later.name)})
+                continue
             try:
-                item = tenant.graph_get_user(user.graph_id)
+                item = tenant.graph_get_user(user.graph_id,
+                                             extra_fields=['licenseAssignmentStates'])
                 details = tenant.graph_get_license_details(user.graph_id)
             except M365GraphError as exc:
                 state = 'mismatch' if 'HTTP 404' in str(exc) else 'error'
@@ -94,23 +130,36 @@ class M365LicenseRequestVerification(models.Model):
                 tenant._log('verify_license', 'failed', "%s: %s" % (rec.name, exc),
                             request=rec)
                 continue
-            problems, pending = [], []
+            problems, pending, definitive = [], [], False
             if not item.get('accountEnabled', True):
                 problems.append(_("The user account is disabled."))
+                definitive = True
             found = [d for d in details if (d.get('sku_id') or '').lower() == sku.sku_id.lower()]
+            groups, errors = self._assignment_notes(item, sku.sku_id.lower())
             if rec.request_type == 'assign':
                 if not found:
                     problems.append(_("%s is not assigned.", sku.name))
+                if errors:
+                    problems.append(_("Microsoft 365 reports: %s.", ", ".join(errors)))
                 for plan in (found[0]['service_plans'] if found else []):
                     status = plan.get('provisioning_status') or ''
                     if status in PLAN_ERRORS:
+                        definitive = True
                         problems.append(_("Service plan %(plan)s: %(status)s.",
                                           plan=plan.get('name'), status=status))
                     elif status in PLAN_PENDING:
                         pending.append(plan.get('name'))
             elif found:
-                problems.append(_("%s is still assigned.", sku.name))
-            if problems:
+                problems.append(_("%(sku)s is still assigned%(how)s.", sku=sku.name, how=_(
+                    " through group(s) %s: remove the user from the group, or the license "
+                    "from the group", ", ".join(groups)) if groups else ''))
+            recent = rec.executed_date and rec.executed_date > now - PROPAGATION_DELAY
+            definitive = definitive or bool(errors) or bool(groups and found)
+            if problems and recent and not definitive:
+                state = 'pending'
+                message = _("Not applied by Microsoft 365 yet (checked again): %s",
+                            " ".join(problems))
+            elif problems:
                 state, message = 'mismatch', " ".join(problems)
             elif pending:
                 state = 'pending'
@@ -208,7 +257,6 @@ class M365TenantProvisioning(models.Model):
                  'client_id', 'tenant_id', 'ingram_order_ids.state', 'ingram_relationship',
                  'partner_account_id.purchase_channel', 'partner_account_id.partner_tenant_id')
     def _compute_provisioning(self):
-        Request = self.env['m365.license.request'].sudo()
         for rec in self:
             sudo = rec.sudo()
             account = sudo.partner_account_id
@@ -297,9 +345,8 @@ class M365TenantProvisioning(models.Model):
                                        'pending' if 'waiting' in states else 'done')
             else:
                 steps['prov_users'] = 'done' if rec.user_ids else 'pending'
-            # 8. Licenses and 9. verification
-            requests = Request.search([('tenant_id', '=', rec.id),
-                                       ('request_type', '=', 'assign')])
+            # 8. Licenses and 9. verification: the latest request of each user and license
+            requests = rec._latest_license_requests()
             if not requests:
                 steps['prov_licenses'] = steps['prov_verification'] = 'pending'
             else:
@@ -308,7 +355,7 @@ class M365TenantProvisioning(models.Model):
                                           'action' if 'submitted' in states else
                                           'done' if 'done' in states else 'pending')
                 done = requests.filtered(lambda r: r.state == 'done')
-                checks = set(done.mapped('verification_state'))
+                checks = set(done.mapped('verification_state')) - {'superseded'}
                 steps['prov_verification'] = (
                     'failed' if checks & {'mismatch', 'error'} else
                     'done' if done and checks == {'verified'} else 'pending')
@@ -319,6 +366,18 @@ class M365TenantProvisioning(models.Model):
             labels = dict(STEP_STATES)
             rec.update(dict(steps, prov_state=prov_state, prov_summary=(
                 "%s: %s" % (rec._step_label(nxt), labels[steps[nxt]]) if nxt else False)))
+
+    def _latest_license_requests(self):
+        """The last assign / remove request of each user and license of the tenant (the
+        earlier ones were replaced by it)."""
+        self.ensure_one()
+        requests = self.env['m365.license.request'].sudo().search(
+            [('tenant_id', '=', self.id), ('request_type', 'in', LICENSE_TYPES),
+             ('state', 'not in', ('draft', 'rejected'))], order='id desc')
+        latest = {}
+        for request in requests:
+            latest.setdefault((request.user_id.id, request.sku_id.id), request)
+        return requests.browse([r.id for r in latest.values()])
 
     def _step_label(self, step):
         return self._fields[step].string.replace("Step: ", "")
@@ -726,8 +785,8 @@ class M365TenantProvisioning(models.Model):
         return 'progress', _("Users created.")
 
     def _prov_run_licenses(self, interactive):
-        requests = self.env['m365.license.request'].search([
-            ('tenant_id', '=', self.id), ('request_type', '=', 'assign')])
+        requests = self.env['m365.license.request'].browse(
+            self._latest_license_requests().ids)
         if not requests:
             return 'action', _("License requests for the users")
         submitted = requests.filtered(lambda r: r.state == 'submitted')
@@ -743,14 +802,13 @@ class M365TenantProvisioning(models.Model):
         return 'waiting', _("Assignment of the licenses")
 
     def _prov_run_verification(self, interactive):
-        requests = self.env['m365.license.request'].search([
-            ('tenant_id', '=', self.id), ('state', '=', 'done'),
-            ('request_type', '=', 'assign')])
+        requests = self.env['m365.license.request'].browse(
+            self._latest_license_requests().ids).filtered(lambda r: r.state == 'done')
         requests.filtered(lambda r: r.verification_state != 'verified')._verify()
         if requests.filtered(lambda r: r.verification_state in ('mismatch', 'error')):
             return 'action', _("Licenses not as requested: see the verification of the "
                                "requests")
-        if requests.filtered(lambda r: r.verification_state != 'verified'):
+        if requests.filtered(lambda r: r.verification_state not in ('verified', 'superseded')):
             return 'waiting', _("Provisioning of the service plans")
         return 'progress', _("Licenses verified.")
 
