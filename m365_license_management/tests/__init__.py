@@ -12,6 +12,15 @@ from . import test_m365_live
 from . import test_m365_sync
 from . import test_m365_tenant_import
 from . import test_m365_tenant_creation
+from . import test_m365_tenant_consent
+from . import test_m365_tenant_config
+from . import test_m365_user_create
+from . import test_m365_mfa
+from . import test_m365_ingram
+from . import test_m365_api_extras
+from . import test_m365_provisioning
+from . import test_m365_bulk_provisioning
+from . import test_m365_ingram_bulk
 from . import test_m365_security
 from . import test_m365_tenant_access
 from . import test_m365_portal

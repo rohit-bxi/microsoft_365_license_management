@@ -195,8 +195,9 @@ class M365TenantLive(models.Model):
                 data = tenant._graph_request('POST', '/subscriptions',
                                              json_body=tenant._subscription_body(expiry))
             except M365GraphError as exc:
+                # A notification, not an error: the audit log line is kept
                 tenant._log('webhook', 'failed', str(exc))
-                raise
+                return self._notify(_("Webhook subscription failed: %s", exc), 'danger')
             tenant.write({
                 'webhook_enabled': True,
                 'webhook_subscription_id': data.get('id'),

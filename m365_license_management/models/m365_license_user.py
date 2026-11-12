@@ -67,8 +67,12 @@ class M365LicenseUser(models.Model):
             raise AccessError(_("Only Microsoft 365 administrators can perform this action."))
 
     def action_refresh_from_graph(self):
-        """Re-read the user and the assigned licenses from Microsoft Graph."""
+        """Re-read the user and the assigned licenses from Microsoft Graph.
+
+        A failure is a notification, not an error, so that its audit log line is kept.
+        """
         self._check_admin()
+        errors = []
         for rec in self:
             try:
                 rec.tenant_id._refresh_user(rec)
@@ -76,7 +80,9 @@ class M365LicenseUser(models.Model):
                                    _("%s refreshed from Microsoft 365.", rec.name))
             except M365GraphError as exc:
                 rec.tenant_id._log('refresh_user', 'failed', "%s: %s" % (rec.name, exc))
-                raise
+                errors.append("%s: %s" % (rec.name, exc))
+        if errors:
+            return self.env['m365.tenant']._notify("\n".join(errors), 'danger')
         return True
 
     def get_live_license_details(self):
@@ -124,5 +130,9 @@ class M365UsageLocationWizard(models.TransientModel):
 
     def action_apply(self):
         self.ensure_one()
-        self.user_id.set_usage_location(self.country_id.code)
+        try:
+            self.user_id.set_usage_location(self.country_id.code)
+        except M365GraphError as exc:  # logged: shown without losing the log line
+            return self.env['m365.tenant']._notify(
+                _("Usage location not changed: %s", exc), 'danger')
         return {'type': 'ir.actions.act_window_close'}

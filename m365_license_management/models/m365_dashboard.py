@@ -220,22 +220,22 @@ class M365Dashboard(models.AbstractModel):
             if sku.status in ('Suspended', 'LockedOut'):
                 alerts.append({'level': 'danger', 'icon': 'fa-ban', 'title': sku.name,
                                'text': '%s subscription (%s).' % (sku.status, sku.tenant_id.name),
-                               'kind': 'sku_status'})
+                               'kind': 'sku_status', 'sku_id': sku.id})
             elif sku.available_units == 0:
                 alerts.append({'level': 'danger', 'icon': 'fa-battery-empty', 'title': sku.name,
                                'text': 'No licenses left (%s).' % sku.tenant_id.name,
-                               'kind': 'sku_empty'})
+                               'kind': 'sku_empty', 'sku_id': sku.id})
             elif sku.low_alert_sent:
                 alerts.append({'level': 'warning', 'icon': 'fa-battery-quarter',
                                'title': sku.name,
                                'text': 'Only %s of %s left (%s).' % (
                                    sku.available_units, sku.enabled_units, sku.tenant_id.name),
-                               'kind': 'sku_low'})
+                               'kind': 'sku_low', 'sku_id': sku.id})
             if sku.warning_units:
                 alerts.append({'level': 'warning', 'icon': 'fa-clock-o', 'title': sku.name,
                                'text': '%s license(s) expiring (%s).' % (
                                    sku.warning_units, sku.tenant_id.name),
-                               'kind': 'sku_expiring'})
+                               'kind': 'sku_expiring', 'sku_id': sku.id})
         Request = self.env['m365.license.request']
         failed = Request.search_count([('tenant_id', 'in', tenants.ids), ('state', '=', 'failed')])
         pending = Request.search_count([('tenant_id', 'in', tenants.ids),

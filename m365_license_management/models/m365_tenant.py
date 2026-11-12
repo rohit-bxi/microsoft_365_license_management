@@ -13,6 +13,8 @@ from odoo.tools import config
 _logger = logging.getLogger(__name__)
 
 SKU_STATUSES = ('Enabled', 'Warning', 'Suspended', 'Deleted', 'LockedOut')
+# Fields of the app registration: changing one invalidates the token
+CREDENTIAL_FIELDS = {'tenant_id', 'client_id', 'client_secret', 'authority_url', 'graph_scope'}
 
 
 class M365GraphError(UserError):
@@ -147,9 +149,18 @@ class M365Tenant(models.Model):
 
     def write(self, vals):
         # Changing credentials invalidates the cached token
-        if {'tenant_id', 'client_id', 'client_secret', 'authority_url', 'graph_scope'} & set(vals):
-            vals = dict(vals, access_token=False, token_expiry=False, state='draft')
-        return super().write(vals)
+        reset = bool(CREDENTIAL_FIELDS & set(vals))
+        if reset:
+            vals = dict(vals, state='draft')
+        res = super().write(vals)
+        if reset:
+            self._clear_token()
+        return res
+
+    def _clear_token(self):
+        """Forget the cached access token. The token fields are restricted to system
+        administrators, which Microsoft 365 administrators may not be."""
+        self.sudo().write({'access_token': False, 'token_expiry': False})
 
     # ------------------------------------------------------------------
     # Audit helper
@@ -180,6 +191,15 @@ class M365Tenant(models.Model):
         return "HTTP %s - %s: %s" % (
             resp.status_code, data.get('error'), data.get('error_description') or '')
 
+    def _get_app_credentials(self):
+        """(client ID, client secret) of the app the access token is requested for: the
+        app registration of the tenant (extended for the shared app of the partner)."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not (rec.tenant_id and rec.client_id and rec.client_secret):
+            raise M365GraphError(_("Tenant ID, Client ID and Client Secret are required."))
+        return rec.client_id.strip(), rec.client_secret.strip()
+
     def _get_access_token(self, force=False):
         """Return a (cached) OAuth 2.0 client-credentials access token."""
         self.ensure_one()
@@ -188,13 +208,12 @@ class M365Tenant(models.Model):
         if (not force and rec.access_token and rec.token_expiry
                 and rec.token_expiry > now + timedelta(minutes=5)):
             return rec.access_token
-        if not (rec.tenant_id and rec.client_id and rec.client_secret):
-            raise M365GraphError(_("Tenant ID, Client ID and Client Secret are required."))
+        client_id, client_secret = self._get_app_credentials()
         url = "%s/%s/oauth2/v2.0/token" % (rec.authority_url.rstrip('/'), rec.tenant_id.strip())
         try:
             resp = requests.post(url, data={
-                'client_id': rec.client_id.strip(),
-                'client_secret': rec.client_secret.strip(),
+                'client_id': client_id,
+                'client_secret': client_secret,
                 'scope': rec.graph_scope.strip(),
                 'grant_type': 'client_credentials',
             }, timeout=30)
@@ -268,11 +287,15 @@ class M365Tenant(models.Model):
             product = products.get(part)
             if not product:
                 product = Product.create({
-                    'name': part.replace('_', ' ').title(),
+                    'name': self._auto_product_name(part, item['skuId']),
                     'sku_part_number': part,
                     'auto_created': True,
                 })
                 products[part] = product
+            elif product.auto_created and product.name == self._generic_product_name(part):
+                name = self._auto_product_name(part, item['skuId'])
+                if name != product.name:
+                    product.name = name
             prepaid = item.get('prepaidUnits') or {}
             status = item.get('capabilityStatus')
             vals = {
@@ -303,6 +326,15 @@ class M365Tenant(models.Model):
         self.write({'last_sync_date': now, 'state': 'connected', 'last_error': False})
         self._check_low_availability()
         return len(items)
+
+    @staticmethod
+    def _generic_product_name(part):
+        return part.replace('_', ' ').title()
+
+    def _auto_product_name(self, part, graph_sku_id):
+        """Name of a product created by the synchronisation (extended with the Partner
+        Center offers)."""
+        return self._generic_product_name(part)
 
     def _sync_users_from_graph(self):
         """Pull GET /users with assigned licenses."""

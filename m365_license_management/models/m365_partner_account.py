@@ -24,6 +24,11 @@ from .m365_tenant import M365GraphError
 
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 PC_APPLICATION = 'Odoo Microsoft 365 License Management'
+# Changing one invalidates the Partner Center token
+CREDENTIAL_FIELDS = {'partner_tenant_id', 'client_id', 'client_secret', 'authority_url',
+                     'api_scope'}
+# Changing one invalidates the tokens of the tenants connected through the shared app
+SHARED_APP_FIELDS = {'graph_client_id', 'graph_client_secret'}
 
 
 class M365PartnerCenterTimeout(M365GraphError):
@@ -42,10 +47,13 @@ class M365PartnerAccount(models.Model):
     company_id = fields.Many2one('res.company', string="Company",
                                  default=lambda self: self.env.company)
     partner_tenant_id = fields.Char(
-        string="Partner Directory (Tenant) ID", required=True, copy=False, tracking=True,
-        help="Directory ID (or primary domain) of your Partner Center (CSP) tenant.")
-    client_id = fields.Char(string="Application (Client) ID", required=True, copy=False,
-                            tracking=True)
+        string="Partner Directory (Tenant) ID", copy=False, tracking=True,
+        help="Directory ID (or primary domain) of your Partner Center (CSP) tenant. Needed "
+             "for Partner Center, GDAP and the partner user; leave empty to use only the "
+             "shared app (without Partner Center).")
+    client_id = fields.Char(string="Application (Client) ID", copy=False, tracking=True,
+                            help="App of Partner Center (App management). Empty: Partner "
+                                 "Center is not used, only the shared app.")
     client_secret = fields.Char(string="Client Secret", copy=False, groups=ADMIN_GROUP)
     authority_url = fields.Char(string="Authority URL", required=True,
                                 default='https://login.microsoftonline.com')
@@ -74,17 +82,57 @@ class M365PartnerAccount(models.Model):
                                  string="Customer Tenants")
     tenant_count = fields.Integer(compute='_compute_tenant_count')
 
+    # Shared multi-tenant app: tenants connected through it need no app registration of
+    # their own (see models/m365_tenant_consent.py)
+    graph_client_id = fields.Char(
+        string="Shared App: Application (Client) ID", copy=False, tracking=True,
+        help="Multi-tenant Microsoft Entra app of your partner tenant (Accounts in any "
+             "organizational directory) with the Microsoft Graph application permissions. "
+             "Each tenant grants it admin consent once (Grant Consent on the tenant). It "
+             "can be the app above if that one is multi-tenant.")
+    graph_client_secret = fields.Char(string="Shared App: Client Secret", copy=False,
+                                      groups=ADMIN_GROUP)
+    consent_redirect_uri = fields.Char(
+        string="Shared App: Redirect URI", compute='_compute_consent_redirect_uri',
+        help="Add this address to the redirect URIs (platform Web) of the shared app.")
+
     @api.depends('tenant_ids')
     def _compute_tenant_count(self):
         for rec in self:
             rec.tenant_count = len(rec.tenant_ids)
 
+    def _compute_consent_redirect_uri(self):
+        uri = self.env['m365.tenant']._consent_redirect_uri()
+        for rec in self:
+            rec.consent_redirect_uri = uri
+
     def write(self, vals):
         # Changing the credentials invalidates the cached token
-        if {'partner_tenant_id', 'client_id', 'client_secret', 'authority_url',
-                'api_scope'} & set(vals):
-            vals = dict(vals, access_token=False, token_expiry=False, state='draft')
-        return super().write(vals)
+        reset = bool(CREDENTIAL_FIELDS & set(vals))
+        if reset:
+            vals = dict(vals, state='draft')
+        res = super().write(vals)
+        if reset:
+            # Restricted to system administrators, which Microsoft 365 administrators may
+            # not be
+            self.sudo().write({'access_token': False, 'token_expiry': False})
+        if SHARED_APP_FIELDS & set(vals):
+            # The tenants connected through the shared app need a token of the new app
+            self.env['m365.tenant'].sudo().with_context(active_test=False).search([
+                ('partner_account_id', 'in', self.ids),
+                ('connection_mode', '=', 'shared_app'),
+            ])._clear_token()
+        return res
+
+    def _shared_app_credentials(self):
+        """(client ID, client secret) of the shared multi-tenant app."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not (rec.graph_client_id and rec.graph_client_secret):
+            raise M365GraphError(_(
+                "Enter the application ID and the client secret of the shared app on the "
+                "Partner Center account %s.", rec.name))
+        return rec.graph_client_id.strip(), rec.graph_client_secret.strip()
 
     # ------------------------------------------------------------------
     # Partner Center client
@@ -142,13 +190,19 @@ class M365PartnerAccount(models.Model):
         :return: (HTTP status, JSON body or ``{}``)
         :raise M365PartnerCenterTimeout: no answer, retry with the same request ID
         """
+        return self._pc_send(self._get_access_token, method, path, json_body=json_body,
+                             request_id=request_id, expect=expect)
+
+    def _pc_send(self, get_token, method, path, json_body=None, request_id=None, expect=()):
+        """Partner Center call with the token of ``get_token(force=False)``: app-only
+        (``_pc_request``) or of the signed-in partner user (``_pc_user_request``)."""
         self.ensure_one()
         url = "%s/%s" % (self.api_url.rstrip('/'), path.lstrip('/'))
         request_id = request_id or str(uuid.uuid4())
         retries, refreshed = 0, False
         while True:
             headers = {
-                'Authorization': 'Bearer %s' % self._get_access_token(),
+                'Authorization': 'Bearer %s' % get_token(),
                 'Accept': 'application/json',
                 'MS-RequestId': request_id,
                 'MS-CorrelationId': str(uuid.uuid4()),
@@ -163,7 +217,7 @@ class M365PartnerAccount(models.Model):
                     _("Partner Center did not answer: %s", exc)) from None
             if resp.status_code == 401 and not refreshed:
                 refreshed = True
-                self._get_access_token(force=True)
+                get_token(force=True)
                 continue
             if resp.status_code in (429, 503) and retries < 3:
                 retries += 1
@@ -180,8 +234,20 @@ class M365PartnerAccount(models.Model):
     # ------------------------------------------------------------------
     # Buttons
     # ------------------------------------------------------------------
+    def _pc_configured(self):
+        """Partner Center credentials entered (else the account carries only the shared
+        app, for tenants connected without Partner Center)."""
+        self.ensure_one()
+        return bool(self.partner_tenant_id and self.client_id and self.sudo().client_secret)
+
     def action_test_connection(self):
         self.ensure_one()
+        if not self._pc_configured():
+            return self.env['m365.tenant']._notify(_(
+                "Partner Center is not configured on this account: enter the partner "
+                "directory ID, the application ID and the secret of Partner Center to "
+                "create tenants and buy through Partner Center. The shared app works "
+                "without them."), 'warning')
         try:
             _status, profile = self._pc_request('GET', '/v1/profiles/legalbusiness')
         except M365GraphError as exc:

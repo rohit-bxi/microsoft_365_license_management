@@ -77,7 +77,9 @@ class M365Tenant(models.Model):
         if form == 'new':
             return NEW_COLUMNS
         fnames = TEMPLATE_FIELDS if form == 'existing' else CONNECTION_FIELDS
-        return [column for column in COLUMNS if column[0] in fnames]
+        # The portal connects with the app registration of the tenant: client ID required
+        return [(fname, kind, required or fname == 'client_id')
+                for fname, kind, required in COLUMNS if fname in fnames]
 
     @api.model
     def _portal_form_values(self, form, posted, tenant=None):
@@ -245,6 +247,9 @@ class M365Tenant(models.Model):
         operations = {'connect'}
         if rec.tenant_id and rec.client_id:
             operations.add('test')
+        account = rec.partner_account_id or rec._portal_partner_account()
+        if rec.tenant_id and account.graph_client_id and account.graph_client_secret:
+            operations.add('consent')  # connect through the shared app of the partner
         if rec.tenant_type == 'existing':
             operations.add('remove')
         if rec.admin_password:
@@ -277,6 +282,20 @@ class M365Tenant(models.Model):
 
     def _portal_clear_password(self):
         self._portal_as_admin().action_clear_password()
+
+    def _portal_grant_consent(self):
+        """Consent link of the shared app for the tenant of the portal user.
+
+        :return: URL of the Microsoft admin consent page
+        """
+        self.ensure_one()
+        rec = self._portal_as_admin()
+        if not rec.partner_account_id:
+            rec.partner_account_id = rec._portal_partner_account()
+        url = rec.action_grant_consent()['url']
+        # The callback acts, and logs, in the name of the portal user
+        rec.consent_requested_by = self.env.user
+        return url
 
     def _portal_test_connection(self):
         """Test Connection as the current user, who is named in the audit log."""

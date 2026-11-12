@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import io
+import urllib.parse
 import uuid
 from unittest.mock import patch
 
@@ -92,6 +93,37 @@ class M365PortalCase(TransactionCase):
     def _tenants(self, user=None):
         return self.env['m365.tenant'].search(
             [('portal_user_id', '=', (user or self.owner).id)], order='id')
+
+
+@tagged('post_install', '-at_install')
+class TestM365PortalConsent(M365PortalCase):
+    """Grant Consent on the portal: the shared app of the Partner Center account."""
+
+    def test_portal_consent(self):
+        tenant = self.env['m365.tenant'].with_user(self.owner)._portal_create(
+            [dict(EXISTING, tenant_type='existing')])
+        self.assertNotIn('consent', tenant._portal_operations())
+        self.account.write({'graph_client_id': 'shared-cid', 'graph_client_secret': 'shared'})
+        self.assertIn('consent', tenant._portal_operations())
+        self.env['ir.config_parameter'].set_param('web.base.url', 'https://odoo.example.com')
+        url = tenant._portal_grant_consent()
+        self.assertTrue(url.startswith('https://login.microsoftonline.com/%s/v2.0/adminconsent?'
+                                       % TENANT_1))
+        rec = tenant.sudo()
+        self.assertEqual((rec.partner_account_id, rec.consent_requested_by),
+                         (self.account, self.owner))
+        self.assertTrue(rec.consent_nonce)
+        # The callback acts in the name of the portal user
+        state = dict(urllib.parse.parse_qsl(url.split('?', 1)[1]))['state']
+        with patch(GRAPH_PATH, side_effect=graph_ok):
+            result = self.env['m365.tenant']._consent_callback(
+                {'admin_consent': 'True', 'tenant': TENANT_1, 'state': state})
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(rec.connection_mode, 'shared_app')
+        log = self.env['m365.audit.log'].search([('tenant_id', '=', tenant.id),
+                                                 ('action', '=', 'consent'),
+                                                 ('status', '=', 'success')])
+        self.assertEqual(log.user_id, self.owner)
 
 
 @tagged('post_install', '-at_install')

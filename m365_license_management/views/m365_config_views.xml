@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Tenant configuration profiles -->
+    <record id="view_m365_config_profile_list" model="ir.ui.view">
+        <field name="name">m365.config.profile.list</field>
+        <field name="model">m365.config.profile</field>
+        <field name="arch" type="xml">
+            <list string="Tenant Configuration Profiles">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="is_default"/>
+                <field name="security_defaults"/>
+                <field name="password_never_expires"/>
+                <field name="usage_location_id"/>
+                <field name="technical_email" optional="show"/>
+                <field name="tenant_count" string="Tenants"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_config_profile_form" model="ir.ui.view">
+        <field name="name">m365.config.profile.form</field>
+        <field name="model">m365.config.profile</field>
+        <field name="arch" type="xml">
+            <form string="Tenant Configuration Profile">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_tenants" type="object" class="oe_stat_button"
+                                icon="fa-building">
+                            <field name="tenant_count" widget="statinfo" string="Tenants"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Standard SMB"/></h1>
+                    </div>
+                    <group>
+                        <group string="Security">
+                            <field name="security_defaults" widget="radio"/>
+                            <field name="password_never_expires"/>
+                        </group>
+                        <group string="Defaults">
+                            <field name="usage_location_id" options="{'no_create': True}"/>
+                            <field name="technical_email" widget="email"/>
+                            <field name="is_default"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="security_defaults != 'disable'">
+                        <b>Turn Off</b> removes the MFA requirement of the whole tenant. It is
+                        applied only to tenants with <i>Enable Security Operations</i>; on the
+                        others the configuration fails with this reason.
+                    </div>
+                    <div class="alert alert-info" role="alert">
+                        <b>Apply Configuration</b> on a tenant reads every setting first and
+                        changes only what differs, so it can be used again at any time. The
+                        profile is applied automatically when a tenant is connected through
+                        the shared app (Grant Consent).
+                    </div>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_config_profile" model="ir.actions.act_window">
+        <field name="name">Tenant Configuration Profiles</field>
+        <field name="res_model">m365.config.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create the baseline of your tenants</p>
+            <p>Security Defaults, password expiry, default usage location and technical
+               contact, applied to the tenants with Apply Configuration.</p>
+        </field>
+    </record>
+
+    <!-- Domains -->
+    <record id="view_m365_tenant_domain_list" model="ir.ui.view">
+        <field name="name">m365.tenant.domain.list</field>
+        <field name="model">m365.tenant.domain</field>
+        <field name="arch" type="xml">
+            <list string="Domains" create="0" decoration-muted="not is_verified">
+                <field name="name"/>
+                <field name="tenant_id"/>
+                <field name="is_verified"/>
+                <field name="is_default"/>
+                <field name="is_initial" optional="show"/>
+                <field name="authentication_type" optional="show"/>
+                <field name="password_never_expires" optional="hide"/>
+                <field name="supported_services" optional="hide"/>
+                <field name="last_refresh" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_domain_form" model="ir.ui.view">
+        <field name="name">m365.tenant.domain.form</field>
+        <field name="model">m365.tenant.domain</field>
+        <field name="arch" type="xml">
+            <form string="Domain" create="0">
+                <header>
+                    <button name="action_verify" type="object" string="Verify" class="btn-primary"
+                            invisible="is_verified"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_make_default" type="object" string="Make Default"
+                            invisible="not is_verified or is_default"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_refresh_records" type="object"
+                            string="Refresh DNS Records"
+                            groups="m365_license_management.group_m365_admin"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="tenant_id"/>
+                            <field name="is_verified"/>
+                            <field name="is_default"/>
+                            <field name="is_initial"/>
+                        </group>
+                        <group>
+                            <field name="authentication_type"/>
+                            <field name="supported_services"/>
+                            <field name="password_never_expires"/>
+                            <field name="last_refresh"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-info" role="alert" invisible="is_verified">
+                        Send these records to the owner of the domain. Once they are added at
+                        the DNS host (it can take a few hours), press <b>Verify</b>.
+                    </div>
+                    <field name="verification_records" invisible="is_verified"
+                           widget="CopyClipboardText"/>
+                    <separator string="DNS Records of the Services" invisible="not is_verified"/>
+                    <field name="service_records" invisible="not is_verified"
+                           widget="CopyClipboardText"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_m365_tenant_domain" model="ir.actions.act_window">
+        <field name="name">Domains</field>
+        <field name="res_model">m365.tenant.domain</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_m365_tenant_domain_wizard" model="ir.ui.view">
+        <field name="name">m365.tenant.domain.wizard.form</field>
+        <field name="model">m365.tenant.domain.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Add Domain">
+                <group>
+                    <field name="tenant_id"/>
+                    <field name="name" placeholder="contoso.com"/>
+                </group>
+                <p class="text-muted">The domain is added to Microsoft 365 unverified: Odoo then
+                   shows the DNS record that proves the customer owns it.</p>
+                <footer>
+                    <button name="action_add" type="object" string="Add to Microsoft 365"
+                            class="btn-primary" data-hotkey="q"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Security Defaults -->
+    <record id="view_m365_security_defaults_wizard" model="ir.ui.view">
+        <field name="name">m365.security.defaults.wizard.form</field>
+        <field name="model">m365.security.defaults.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Security Defaults">
+                <div class="alert alert-danger" role="alert" invisible="enable">
+                    Turning off Security Defaults removes the MFA requirement for every user of
+                    the tenant, unless Conditional Access policies require it. Microsoft still
+                    requires MFA to sign in to its admin portals.
+                </div>
+                <group>
+                    <field name="tenant_id"/>
+                    <field name="enable"/>
+                    <field name="reason" placeholder="e.g. Customer request, ticket 4711"/>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Turn Off" class="btn-danger"
+                            invisible="enable" data-hotkey="q"/>
+                    <button name="action_apply" type="object" string="Turn On" class="btn-primary"
+                            invisible="not enable" data-hotkey="q"/>
+                    <button string="Cancel" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -23,7 +23,8 @@
                     All <field name="line_count" class="d-inline"/> rows are valid. Check the
                     matched users and licenses below, then press
                     <b invisible="request_type != 'assign'">Assign Licenses</b>
-                    <b invisible="request_type != 'remove'">Remove Licenses</b>.
+                    <b invisible="request_type != 'remove'">Remove Licenses</b>
+                    <b invisible="request_type not in ('mfa_reset', 'mfa_disable')">Submit MFA Requests</b>.
                 </div>
                 <div class="alert alert-danger" role="alert"
                      invisible="state == 'done' or not error_count">
@@ -35,6 +36,13 @@
                     Completed: <field name="done_count" class="d-inline"/> ·
                     Waiting approval: <field name="submitted_count" class="d-inline"/> ·
                     Failed: <field name="failed_count" class="d-inline"/>
+                </div>
+                <div class="alert alert-warning" role="alert"
+                     invisible="state == 'done' or request_type not in ('mfa_reset', 'mfa_disable')">
+                    MFA operations: leave the <i>License</i> column empty and give a
+                    <i>Business Justification</i> on every row. The tenants need
+                    <i>Enable Security Operations</i>. Each request waits for the approval of
+                    an administrator.
                 </div>
                 <group invisible="state == 'done'">
                     <field name="request_type" widget="radio" options="{'horizontal': true}"/>
@@ -70,6 +78,10 @@
                             class="btn-danger" data-hotkey="q"
                             invisible="state == 'done' or not line_count or error_count or request_type != 'remove'"
                             confirm="Remove the licenses of all the rows of the file?"/>
+                    <button name="action_execute" type="object" string="Submit MFA Requests"
+                            class="btn-danger" data-hotkey="q"
+                            invisible="state == 'done' or not line_count or error_count or request_type not in ('mfa_reset', 'mfa_disable')"
+                            confirm="Submit an MFA request for every row of the file? Each one waits for the approval of an administrator."/>
                     <button name="action_download_template" type="object"
                             string="Download Template" class="btn-secondary"
                             invisible="state == 'done'"/>

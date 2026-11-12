@@ -203,7 +203,7 @@ Manual acceptance, with the **integration sandbox** account first:
 |------|------|
 | Microsoft Customer Agreement attestation (`POST /v1/customers/{id}/agreements`) | Needed before buying subscriptions for the customer. Microsoft supports only **App+User** authentication (MFA enforced since April 2026) for it, so it needs the secure application model (refresh token of a partner user). Until then, the customer accepts the agreement in the Microsoft 365 admin center, or the partner confirms it in Partner Center. |
 | Ordering subscriptions / licenses for the new customer | Partner Center cart and order APIs (new commerce). |
-| Automatic Odoo tenant setup | Grant consent to a multi-tenant app in the new tenant (GDAP or application consent), so that *Test Connection* works without a manual app registration. |
+| Automatic Odoo tenant setup | **Done in 19.0.1.7.0**: *Grant Consent* connects the tenant through the shared multi-tenant app of the Partner Center account (`doc/tenant_operations_plan.md`, section 5). |
 | Custom domains | Add and verify `contoso.com` in the new tenant (Microsoft Graph). |
 | Notify the customer | Email the sign-in details (secure delivery, not the password in clear). |
 | Indirect resellers | `AssociatedPartnerId` for indirect providers creating customers for a reseller. |

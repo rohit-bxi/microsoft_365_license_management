@@ -11,6 +11,7 @@
                 <field name="tenant_customer_id" optional="show"/>
                 <field name="tenant_type" optional="show"/>
                 <field name="tenant_id" optional="hide"/>
+                <field name="connection_mode" optional="hide"/>
                 <field name="total_licenses"/>
                 <field name="assigned_licenses"/>
                 <field name="available_licenses"/>
@@ -54,10 +55,30 @@
                     <button name="action_reset_creation" type="object" string="Reset to Draft"
                             invisible="tenant_type != 'new' or provision_state != 'failed'"
                             groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_grant_consent" type="object" string="Grant Consent"
+                            class="btn-primary"
+                            invisible="(tenant_type == 'new' and provision_state != 'done') or not tenant_id or connection_mode == 'shared_app' or consent_expiry"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_grant_consent" type="object" string="New Consent Link"
+                            invisible="(tenant_type == 'new' and provision_state != 'done') or not tenant_id or (connection_mode == 'own_app' and not consent_expiry)"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_check_consent" type="object" string="Check Consent"
+                            invisible="not consent_expiry"
+                            groups="m365_license_management.group_m365_admin"/>
                     <button name="action_test_connection" type="object" string="Test Connection"
                             class="btn-primary" invisible="tenant_type == 'new' and provision_state != 'done'" groups="m365_license_management.group_m365_admin"/>
                     <button name="action_sync_inventory" type="object" string="Synchronise Now"
                             invisible="state == 'draft'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_apply_configuration" type="object"
+                            string="Apply Configuration"
+                            invisible="state == 'draft' or not config_profile_id or (tenant_type == 'new' and provision_state != 'done')"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_create_user" type="object" string="Create User"
+                            invisible="state == 'draft' or not allow_license_operations or (tenant_type == 'new' and provision_state != 'done')"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_buy_licenses" type="object" string="Buy Licenses"
+                            invisible="state == 'draft' or (tenant_type == 'new' and provision_state != 'done')"
                             groups="m365_license_management.group_m365_admin"/>
                     <field name="provision_state" widget="statusbar"
                            statusbar_visible="draft,ready,queued,done"
@@ -78,6 +99,12 @@
                         <button name="action_view_requests" type="object" class="oe_stat_button"
                                 icon="fa-exchange">
                             <field name="request_count" widget="statinfo" string="Requests"/>
+                        </button>
+                        <button name="action_view_ingram_orders" type="object"
+                                class="oe_stat_button" icon="fa-shopping-cart"
+                                invisible="not ingram_order_count"
+                                groups="m365_license_management.group_m365_admin">
+                            <field name="ingram_order_count" widget="statinfo" string="License Orders"/>
                         </button>
                     </div>
                     <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
@@ -100,16 +127,28 @@
                         <b>Retry</b> sends the same request ID: Microsoft then returns the
                         tenant it created instead of creating a second one.
                     </div>
+                    <div class="alert alert-warning" role="alert" invisible="config_state != 'failed'">
+                        <strong>Configuration failed:</strong>
+                        <field name="config_error" nolabel="1" class="d-inline"/>
+                    </div>
                     <div class="alert alert-info" role="alert" invisible="provision_state != 'queued'">
                         The tenant is being created in Microsoft 365. Reload the page in a
                         minute.
                     </div>
                     <div class="alert alert-info" role="alert"
-                         invisible="provision_state != 'done' or state != 'draft'">
-                        The tenant is created in Microsoft 365. To manage its licenses, enter
-                        the client ID and secret of an app registration consented in the new
-                        tenant (<i>Entra App Registration</i> tab) and press
+                         invisible="provision_state != 'done' or state != 'draft' or consent_expiry">
+                        The tenant is created in Microsoft 365. To manage its licenses, press
+                        <b>Grant Consent</b> and sign in with its initial admin user: the
+                        tenant is then connected through the shared app of the Partner Center
+                        account. Or enter the client ID and secret of an app registration of
+                        the tenant (<i>Entra App Registration</i> tab) and press
                         <b>Test Connection</b>.
+                    </div>
+                    <div class="alert alert-info" role="alert" invisible="not consent_expiry">
+                        Waiting for the admin consent of the shared app: a Global Administrator
+                        of the tenant opens the consent link (<i>Entra App Registration</i>
+                        tab) and accepts. If consent was granted but the tenant is not
+                        connected, press <b>Check Consent</b> after a few minutes.
                     </div>
                     <field name="pc_request_id" invisible="1"/>
                     <group>
@@ -175,16 +214,34 @@
                         <page string="Entra App Registration" name="connection" invisible="tenant_type == 'new' and provision_state != 'done'">
                             <group>
                                 <group string="OAuth 2.0 (Client Credentials)">
+                                    <field name="connection_mode" widget="radio"
+                                           options="{'horizontal': true}"/>
                                     <field name="tenant_id" readonly="tenant_type == 'new'"
                                            required="tenant_type == 'existing'"/>
-                                    <field name="client_id" required="tenant_type == 'existing'"/>
+                                    <field name="partner_account_id" string="Shared App Account"
+                                           invisible="tenant_type == 'new'"
+                                           required="connection_mode == 'shared_app'"
+                                           options="{'no_create': True}"
+                                           groups="m365_license_management.group_m365_admin"/>
+                                    <field name="client_id" invisible="connection_mode == 'shared_app'"
+                                           required="tenant_type == 'existing' and connection_mode == 'own_app'"/>
                                     <field name="client_secret" password="True"
+                                           invisible="connection_mode == 'shared_app'"
                                            groups="m365_license_management.group_m365_admin"/>
                                 </group>
                                 <group string="Endpoints">
                                     <field name="authority_url"/>
                                     <field name="graph_url"/>
                                     <field name="graph_scope"/>
+                                </group>
+                                <group string="Admin Consent (Shared App)"
+                                       invisible="not consent_expiry and not consent_date"
+                                       groups="m365_license_management.group_m365_admin">
+                                    <field name="consent_url" widget="CopyClipboardChar"
+                                           invisible="not consent_url"/>
+                                    <field name="consent_expiry" invisible="not consent_expiry"/>
+                                    <field name="consent_requested_by"/>
+                                    <field name="consent_date" invisible="not consent_date"/>
                                 </group>
                             </group>
                         </page>
@@ -196,6 +253,14 @@
                                     <field name="auto_approve_admins"
                                            invisible="not allow_license_operations"/>
                                 </group>
+                                <group string="Security Operations">
+                                    <field name="allow_security_operations"/>
+                                    <div colspan="2" class="text-muted">
+                                        Reset MFA, per-user MFA off, Security Defaults off and
+                                        Temporary Access Passes. MFA requests always wait for
+                                        the approval of an administrator.
+                                    </div>
+                                </group>
                                 <group string="Scheduled Synchronisation">
                                     <field name="sync_enabled"/>
                                     <field name="sync_users" invisible="not sync_enabled"/>
@@ -205,6 +270,86 @@
                                     <field name="low_availability_units"/>
                                 </group>
                             </group>
+                        </page>
+                        <page string="Configuration" name="configuration"
+                              invisible="(tenant_type == 'new' and provision_state != 'done')"
+                              groups="m365_license_management.group_m365_admin">
+                            <group>
+                                <group string="Configuration Profile">
+                                    <field name="config_profile_id" options="{'no_create': True}"/>
+                                    <field name="config_state" widget="badge"
+                                           decoration-success="config_state == 'applied'"
+                                           decoration-danger="config_state == 'failed'"/>
+                                    <field name="config_date" invisible="not config_date"/>
+                                </group>
+                                <group string="Security Defaults">
+                                    <field name="security_defaults_state" widget="badge"
+                                           decoration-success="security_defaults_state == 'on'"
+                                           decoration-warning="security_defaults_state == 'off'"/>
+                                    <div colspan="2">
+                                        <button name="action_security_defaults_wizard" type="object"
+                                                string="Turn Off Security Defaults" class="btn-secondary me-2"
+                                                invisible="not allow_security_operations or security_defaults_state == 'off' or state == 'draft'"/>
+                                        <button name="action_security_defaults_wizard" type="object"
+                                                string="Turn On Security Defaults" class="btn-secondary"
+                                                context="{'m365_enable': True}"
+                                                invisible="security_defaults_state == 'on' or state == 'draft'"/>
+                                    </div>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Purchasing" name="purchasing"
+                              invisible="(tenant_type == 'new' and provision_state != 'done')"
+                              groups="m365_license_management.group_m365_admin">
+                            <group>
+                                <group string="Ingram Micro">
+                                    <field name="ingram_relationship"/>
+                                    <field name="ingram_relationship_date"
+                                           invisible="not ingram_relationship"/>
+                                </group>
+                                <group string="Microsoft Customer Agreement">
+                                    <field name="mca_accepted"/>
+                                    <field name="mca_first_name" invisible="not mca_accepted"
+                                           required="mca_accepted"/>
+                                    <field name="mca_last_name" invisible="not mca_accepted"
+                                           required="mca_accepted"/>
+                                    <field name="mca_email" widget="email"
+                                           invisible="not mca_accepted" required="mca_accepted"/>
+                                    <field name="mca_phone" widget="phone"
+                                           invisible="not mca_accepted"/>
+                                    <field name="mca_date" invisible="not mca_accepted"
+                                           required="mca_accepted"/>
+                                </group>
+                            </group>
+                            <div class="alert alert-info" role="alert">
+                                Ingram Micro can only buy subscriptions for customers that have
+                                a reseller relationship with it (the customer accepts the
+                                invitation of Ingram Micro in the Microsoft 365 admin center)
+                                and that accepted the Microsoft Customer Agreement. Partner
+                                Center shows the relationships only to a signed-in partner user,
+                                so Odoo cannot check them: confirm them here. The acceptance is
+                                sent with the orders through the <i>Vendor Fields</i> of the
+                                Ingram Micro account.
+                            </div>
+                        </page>
+                        <page string="Domains" name="domains" invisible="(tenant_type == 'new' and provision_state != 'done')">
+                            <div class="mb-2" groups="m365_license_management.group_m365_admin">
+                                <button name="action_add_domain" type="object" string="Add Domain"
+                                        class="btn-secondary me-2" invisible="state == 'draft'"/>
+                                <button name="action_sync_domains" type="object"
+                                        string="Refresh Domains" class="btn-secondary"
+                                        invisible="state == 'draft'"/>
+                            </div>
+                            <field name="domain_ids" readonly="1">
+                                <list decoration-muted="not is_verified">
+                                    <field name="name"/>
+                                    <field name="is_verified"/>
+                                    <field name="is_default"/>
+                                    <field name="is_initial"/>
+                                    <field name="authentication_type"/>
+                                    <field name="password_never_expires"/>
+                                </list>
+                            </field>
                         </page>
                         <page string="Users with Access" name="access"
                               groups="m365_license_management.group_m365_admin">
@@ -280,22 +425,44 @@
                                    enter the initial domain (e.g. contoso.onmicrosoft.com), a
                                    contact and the registered address, press <b>Check</b>, then
                                    <b>Create in Microsoft 365</b>. Once it is created, its
-                                   directory ID is filled in: follow the steps below in the new
-                                   tenant to connect it.</p>
+                                   directory ID is filled in: connect it with the shared app or
+                                   with its own app registration, as below.</p>
+                                <h4>Shared app (recommended)</h4>
+                                <p>One multi-tenant app of your partner tenant connects every
+                                   tenant, without app registration in each one. Configure it
+                                   once on the <i>Partner Center Account</i> (application ID,
+                                   secret, redirect URI and Graph permissions). Then, on each
+                                   tenant, press <b>Grant Consent</b>: a Global Administrator of
+                                   the tenant signs in on the Microsoft page that opens (or the
+                                   consent link sent to them) and accepts. Odoo connects the
+                                   tenant as soon as the shared app can read it.</p>
+                                <h4>Own app registration</h4>
                                 <h4>1. Register an application in Microsoft Entra ID</h4>
                                 <p>Entra admin center &#8594; App registrations &#8594; New registration.
                                    Copy the <b>Directory (tenant) ID</b> and <b>Application (client) ID</b>
                                    and create a <b>client secret</b> (Certificates &amp; secrets).</p>
                                 <h4>2. Grant Microsoft Graph <i>application</i> permissions (admin consent)</h4>
                                 <ul>
-                                    <li><b>Read-only (Phase 1&#8211;3):</b> <code>Organization.Read.All</code>
-                                        (or <code>LicenseAssignment.Read.All</code>) for subscribed SKUs and
-                                        <code>User.Read.All</code> for the user directory.</li>
-                                    <li><b>License operations (Phase 4):</b>
-                                        <code>LicenseAssignment.ReadWrite.All</code> or
-                                        <code>User.ReadWrite.All</code> &#8211; grant only when
-                                        <i>Enable License Operations</i> is switched on (least privilege).</li>
+                                    <li><b>Inventory and users:</b> <code>Organization.Read.All</code>
+                                        and <code>User.Read.All</code>.</li>
+                                    <li><b>License operations and user creation:</b>
+                                        <code>LicenseAssignment.ReadWrite.All</code> and
+                                        <code>User.ReadWrite.All</code>.</li>
+                                    <li><b>Configuration and domains:</b>
+                                        <code>Policy.Read.All</code>,
+                                        <code>Policy.ReadWrite.ConditionalAccess</code> (Security
+                                        Defaults), <code>Domain.ReadWrite.All</code> and
+                                        <code>Organization.ReadWrite.All</code> (technical
+                                        contact).</li>
+                                    <li><b>Security operations:</b>
+                                        <code>UserAuthenticationMethod.ReadWrite.All</code> (MFA
+                                        methods, Temporary Access Pass) and
+                                        <code>Policy.ReadWrite.AuthenticationMethod</code>
+                                        (per-user MFA, Temporary Access Pass policy).</li>
                                 </ul>
+                                <p class="text-muted">Grant only what the switches of the tenant use
+                                   (least privilege). With the shared app, a permission added later
+                                   needs a new consent in each tenant.</p>
                                 <h4>3. Test the connection</h4>
                                 <p>Fill in the IDs and secret, save and press <b>Test Connection</b>,
                                    then <b>Synchronise Now</b> to load the license inventory.</p>

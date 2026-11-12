@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Page shown after the Microsoft admin consent page (shared app of the partner) -->
+    <template id="m365_consent_result" name="Microsoft 365: Admin Consent Result">
+        <t t-call="web.frontend_layout">
+            <t t-set="no_header" t-value="True"/>
+            <t t-set="no_footer" t-value="True"/>
+            <div class="container py-5" style="max-width: 640px;">
+                <h1 class="h3 mb-4" t-out="title or 'Microsoft 365 admin consent'"/>
+                <p t-if="tenant_name" class="text-muted">Tenant: <b t-out="tenant_name"/></p>
+                <div t-attf-class="alert alert-#{'success' if status == 'success' else 'warning' if status == 'failed' else 'danger'}"
+                     role="alert">
+                    <span t-out="message"/>
+                </div>
+                <p t-if="status == 'success' and not tenant_url">You can close this window.</p>
+                <a t-if="tenant_url" t-att-href="tenant_url" class="btn btn-primary" t-out="link_label or 'Open the tenant in Odoo'"/>
+            </div>
+        </t>
+    </template>
+</odoo>

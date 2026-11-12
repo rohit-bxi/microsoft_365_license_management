@@ -178,4 +178,182 @@
         <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
         <field name="domain_force">[(1, '=', 1)]</field>
     </record>
+    <!-- Domains, license orders and Ingram Micro (19.0.1.7.0) -->
+    <record id="m365_tenant_domain_company_rule" model="ir.rule">
+        <field name="name">Microsoft 365 Domain: multi-company</field>
+        <field name="model_id" ref="model_m365_tenant_domain"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_tenant_domain_user_rule" model="ir.rule">
+        <field name="name">Microsoft 365 Domain: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_tenant_domain"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_tenant_domain_admin_rule" model="ir.rule">
+        <field name="name">Microsoft 365 Domain: administrators see all</field>
+        <field name="model_id" ref="model_m365_tenant_domain"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_ingram_order_company_rule" model="ir.rule">
+        <field name="name">License Order: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_order"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_ingram_order_user_rule" model="ir.rule">
+        <field name="name">License Order: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_ingram_order"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_ingram_order_admin_rule" model="ir.rule">
+        <field name="name">License Order: administrators see all</field>
+        <field name="model_id" ref="model_m365_ingram_order"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_ingram_order_line_company_rule" model="ir.rule">
+        <field name="name">License Order Line: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_order_line"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_ingram_order_line_user_rule" model="ir.rule">
+        <field name="name">License Order Line: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_ingram_order_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_ingram_order_line_admin_rule" model="ir.rule">
+        <field name="name">License Order Line: administrators see all</field>
+        <field name="model_id" ref="model_m365_ingram_order_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_ingram_account_company_rule" model="ir.rule">
+        <field name="name">Ingram Micro Account: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_account"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_config_profile_company_rule" model="ir.rule">
+        <field name="name">Tenant Configuration Profile: multi-company</field>
+        <field name="model_id" ref="model_m365_config_profile"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+    <!-- Ingram Micro invoices and renewals -->
+    <record id="m365_ingram_invoice_company_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_invoice"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('account_id.company_id', '=', False), ('account_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_ingram_invoice_user_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_ingram_invoice"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_ingram_invoice_admin_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice: administrators see all</field>
+        <field name="model_id" ref="model_m365_ingram_invoice"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_ingram_invoice_line_company_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice Line: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_invoice_line"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('invoice_id.account_id.company_id', '=', False), ('invoice_id.account_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_ingram_invoice_line_user_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice Line: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_ingram_invoice_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_ingram_invoice_line_admin_rule" model="ir.rule">
+        <field name="name">Ingram Micro Invoice Line: administrators see all</field>
+        <field name="model_id" ref="model_m365_ingram_invoice_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_ingram_renewal_company_rule" model="ir.rule">
+        <field name="name">Ingram Micro Renewal: multi-company</field>
+        <field name="model_id" ref="model_m365_ingram_renewal"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('account_id.company_id', '=', False), ('account_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_ingram_renewal_user_rule" model="ir.rule">
+        <field name="name">Ingram Micro Renewal: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_ingram_renewal"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_ingram_renewal_admin_rule" model="ir.rule">
+        <field name="name">Ingram Micro Renewal: administrators see all</field>
+        <field name="model_id" ref="model_m365_ingram_renewal"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <!-- Partner Center subscription orders -->
+    <record id="m365_pc_order_company_rule" model="ir.rule">
+        <field name="name">Subscription Order: multi-company</field>
+        <field name="model_id" ref="model_m365_pc_order"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_pc_order_user_rule" model="ir.rule">
+        <field name="name">Subscription Order: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_pc_order"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_pc_order_admin_rule" model="ir.rule">
+        <field name="name">Subscription Order: administrators see all</field>
+        <field name="model_id" ref="model_m365_pc_order"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="m365_pc_order_line_company_rule" model="ir.rule">
+        <field name="name">Subscription Order Line: multi-company</field>
+        <field name="model_id" ref="model_m365_pc_order_line"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_pc_order_line_user_rule" model="ir.rule">
+        <field name="name">Subscription Order Line: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_pc_order_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_pc_order_line_admin_rule" model="ir.rule">
+        <field name="name">Subscription Order Line: administrators see all</field>
+        <field name="model_id" ref="model_m365_pc_order_line"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <!-- Users to create (19.0.1.8.0) -->
+    <record id="m365_pending_user_company_rule" model="ir.rule">
+        <field name="name">Microsoft 365 User to Create: multi-company</field>
+        <field name="model_id" ref="model_m365_tenant_pending_user"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">['|', ('tenant_id.company_id', '=', False), ('tenant_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="m365_pending_user_user_rule" model="ir.rule">
+        <field name="name">Microsoft 365 User to Create: tenants of mapped customers</field>
+        <field name="model_id" ref="model_m365_tenant_pending_user"/>
+        <field name="groups" eval="[(4, ref('group_m365_user'))]"/>
+        <field name="domain_force">[('tenant_id.tenant_customer_id.user_mapping_ids.user_id', '=', user.id)]</field>
+    </record>
+    <record id="m365_pending_user_admin_rule" model="ir.rule">
+        <field name="name">Microsoft 365 User to Create: administrators see all</field>
+        <field name="model_id" ref="model_m365_tenant_pending_user"/>
+        <field name="groups" eval="[(4, ref('group_m365_admin'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
 </odoo>

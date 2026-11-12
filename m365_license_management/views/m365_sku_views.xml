@@ -29,6 +29,11 @@
         <field name="model">m365.sku</field>
         <field name="arch" type="xml">
             <form string="Subscription" create="0" edit="0">
+                <header>
+                    <button name="action_buy_licenses" type="object" string="Buy Licenses"
+                            class="btn-primary"
+                            groups="m365_license_management.group_m365_admin"/>
+                </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
                         <button name="action_view_users" type="object" class="oe_stat_button"

@@ -211,7 +211,8 @@ class TestM365Controllers(HttpCase, M365Common):
         for kwargs, error in (
                 ({'data': 'not json'}, 'The request body must be valid JSON.'),
                 ({'json': [valid]}, 'The request body must be a JSON object.'),
-                ({'json': dict(valid, type='swap')}, "type must be 'assign' or 'remove'."),
+                ({'json': dict(valid, type='swap')},
+                 'type must be one of: assign, remove, mfa_reset, mfa_disable.'),
                 ({'json': dict(valid, user_id=None)}, 'user_id is required.'),
                 ({'json': dict(valid, tenant_id='contoso')}, 'tenant_id must be an integer.')):
             self.assertEqual(self._api('/requests', key, 'POST', **kwargs),
