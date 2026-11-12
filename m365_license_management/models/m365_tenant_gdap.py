@@ -41,11 +41,24 @@ APPROVAL_URL = ('https://admin.microsoft.com/AdminPortal/Home#/partners/invitati
                 'granularAdminRelationships/%s')
 # User Administrator, License Administrator, Helpdesk Administrator, Directory Readers,
 # Global Reader: what the module needs to manage users and licenses
-DEFAULT_GDAP_ROLES = ('fe930be7-5e62-47db-91af-98c3a49a38b1,'
-                      '4d6ac14f-3453-41d0-bef9-a3e0c569773a,'
-                      '729827e3-9c14-49f7-bb1b-9608f156bbb8,'
-                      '88d8e3e3-8f55-4a1e-953a-9b9898b8876b,'
-                      'f2ef992c-3afb-46b9-b7cf-a126ee74c451')
+OLD_DEFAULT_GDAP_ROLES = ('fe930be7-5e62-47db-91af-98c3a49a38b1,'
+                          '4d6ac14f-3453-41d0-bef9-a3e0c569773a,'
+                          '729827e3-9c14-49f7-bb1b-9608f156bbb8,'
+                          '88d8e3e3-8f55-4a1e-953a-9b9898b8876b,'
+                          'f2ef992c-3afb-46b9-b7cf-a126ee74c451')
+# + Privileged Role Administrator: grants the application permissions of the shared app
+# in the customer (Install Shared App)
+PRIVILEGED_ROLE_ADMIN = 'e8611ab8-c189-46e8-94e1-60213ab1f814'
+DEFAULT_GDAP_ROLES = OLD_DEFAULT_GDAP_ROLES + ',' + PRIVILEGED_ROLE_ADMIN
+ASSIGNMENTS = RELATIONSHIPS + '/%s/accessAssignments'
+ASSIGNMENT_STATES = [
+    ('none', 'Not Assigned'),
+    ('pending', 'Pending'),
+    ('active', 'Active'),
+    ('deleting', 'Deleting'),
+    ('deleted', 'Deleted'),
+    ('error', 'Error'),
+]
 GDAP_STATES = [
     ('none', 'No Relationship'),
     ('created', 'Created'),
@@ -78,6 +91,15 @@ class M365PartnerAccountGraph(models.Model):
                                        help="1 to 730 days.")
     gdap_auto_extend = fields.Boolean(string="Extend GDAP Automatically", default=True,
                                       help="Extend the relationship by 180 days at its end.")
+    gdap_group_id = fields.Char(
+        string="GDAP Security Group (Object ID)",
+        help="Security group of the partner tenant given the GDAP roles in each customer "
+             "(access assignment). Put the partner service user and the administrators in "
+             "it. Empty: no access assignment is made.")
+    gdap_assignment_role_ids = fields.Char(
+        string="Roles of the Group",
+        help="Role definition IDs (comma separated) given to the group. Empty: all the roles "
+             "of the relationship.")
 
     def write(self, vals):
         res = super().write(vals)
@@ -167,6 +189,13 @@ class M365TenantGdap(models.Model):
              "relationship in the Microsoft 365 admin center.")
     gdap_checked = fields.Datetime(string="GDAP Checked On", readonly=True, copy=False)
     gdap_error = fields.Char(string="GDAP Error", readonly=True, copy=False)
+    gdap_role_ids = fields.Char(string="GDAP Relationship Roles", readonly=True, copy=False)
+    gdap_assignment_id = fields.Char(string="GDAP Access Assignment", readonly=True,
+                                     copy=False)
+    gdap_assignment_status = fields.Selection(
+        ASSIGNMENT_STATES, string="GDAP Group Access", readonly=True, copy=False,
+        help="Access assignment of the security group of the Partner Center account in the "
+             "relationship.")
 
     def _gdap_account(self):
         self.ensure_one()
@@ -188,24 +217,108 @@ class M365TenantGdap(models.Model):
         vals = {'gdap_checked': fields.Datetime.now(), 'gdap_error': False}
         if not items:
             vals.update(gdap_status='none', gdap_relationship_id=False, gdap_name=False,
-                        gdap_end_date=False, gdap_role_count=0)
+                        gdap_end_date=False, gdap_role_count=0, gdap_role_ids=False,
+                        gdap_assignment_id=False, gdap_assignment_status=False)
         else:
             best = sorted(items, key=lambda i: (GDAP_RANK.get(i.get('status'), 9),
                                                 i.get('createdDateTime') or ''))[0]
             status = best.get('status')
+            roles = [r.get('roleDefinitionId') for r in
+                     (best.get('accessDetails') or {}).get('unifiedRoles') or []
+                     if r.get('roleDefinitionId')]
+            if best.get('id') != self.gdap_relationship_id:
+                vals.update(gdap_assignment_id=False, gdap_assignment_status=False)
             vals.update(
                 gdap_status=status if status in GDAP_RANK else False,
                 gdap_relationship_id=best.get('id'),
                 gdap_name=best.get('displayName') or False,
                 gdap_end_date=fields.Datetime.to_datetime(
                     (best.get('endDateTime') or '')[:19].replace('T', ' ') or False),
-                gdap_role_count=len((best.get('accessDetails') or {}).get('unifiedRoles')
-                                    or []),
+                gdap_role_count=len(roles),
+                gdap_role_ids=','.join(roles) or False,
             )
             if status in ('active', 'expiring'):
                 vals['gdap_approval_url'] = False
         self.sudo().write(vals)
+        if self.gdap_status in ('active', 'expiring') and account.gdap_group_id:
+            self._refresh_gdap_assignment(account)
         return self.gdap_status
+
+    def _refresh_gdap_assignment(self, account):
+        """Access assignment of the group of the account in the relationship.
+
+        :return: its status, or 'none'
+        """
+        self.ensure_one()
+        group = (account.gdap_group_id or '').strip().lower()
+        items = account._partner_graph_request(
+            'GET', ASSIGNMENTS % self.gdap_relationship_id, paginate=True)
+        mine = [i for i in items if ((i.get('accessContainer') or {}).get('accessContainerId')
+                                     or '').lower() == group
+                and i.get('status') not in ('deleted', 'deleting')]
+        status = mine[0].get('status') if mine else 'none'
+        self.sudo().write({
+            'gdap_assignment_id': mine[0].get('id') if mine else False,
+            'gdap_assignment_status': status if status in dict(ASSIGNMENT_STATES) else 'error',
+        })
+        return self.gdap_assignment_status
+
+    def _gdap_assignment_roles(self, account):
+        """Roles given to the group: those wanted on the account, among the roles of the
+        relationship."""
+        self.ensure_one()
+        relationship = [r.strip().lower() for r in (self.gdap_role_ids or '').split(',')
+                        if r.strip()]
+        wanted = [r.strip().lower() for r in (account.gdap_assignment_role_ids or '').split(',')
+                  if r.strip()] or relationship
+        return [r for r in wanted if r in relationship]
+
+    def _ensure_gdap_assignment(self):
+        """Give the GDAP roles to the security group of the Partner Center account, once
+        the relationship is active. :return: assignment status, or False when the
+        account has no group (not needed)"""
+        self.ensure_one()
+        account = self._gdap_account()
+        if not account.gdap_group_id:
+            return False
+        if self.gdap_status not in ('active', 'expiring'):
+            raise UserError(_("The GDAP relationship of %s is not active.", self.name))
+        status = self._refresh_gdap_assignment(account)
+        if status != 'none':
+            return status
+        roles = self._gdap_assignment_roles(account)
+        if not roles:
+            raise UserError(_("None of the roles to give to the GDAP group is in the "
+                              "relationship of %s.", self.name))
+        item = account._partner_graph_request(
+            'POST', ASSIGNMENTS % self.gdap_relationship_id, json_body={
+                'accessContainer': {'accessContainerId': account.gdap_group_id.strip(),
+                                    'accessContainerType': 'securityGroup'},
+                'accessDetails': {'unifiedRoles': [{'roleDefinitionId': r} for r in roles]},
+            })
+        status = item.get('status') or 'pending'
+        self.sudo().write({'gdap_assignment_id': item.get('id'),
+                           'gdap_assignment_status': status if status in dict(
+                               ASSIGNMENT_STATES) else 'pending'})
+        self._log('gdap', 'success', _(
+            "GDAP roles (%(count)s) given to the security group %(group)s.",
+            count=len(roles), group=account.gdap_group_id))
+        return self.gdap_assignment_status
+
+    def action_gdap_assign_group(self):
+        self._check_admin()
+        errors = []
+        for tenant in self:
+            try:
+                tenant._refresh_gdap()
+                tenant._ensure_gdap_assignment()
+            except (M365GraphError, UserError) as exc:
+                tenant.sudo().gdap_error = str(exc)[:250]
+                tenant._log('gdap', 'failed', str(exc))
+                errors.append("%s: %s" % (tenant.name, exc))
+        if errors:
+            return self._notify("\n".join(errors), 'danger')
+        return self._notify(_("GDAP group access requested."))
 
     def action_refresh_gdap(self):
         self._check_admin()

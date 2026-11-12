@@ -70,6 +70,13 @@ class M365PartnerAccountPurchase(models.Model):
         string="Require Customer Agreement", default=True,
         help="A Partner Center order can be submitted only for tenants whose acceptance of "
              "the Microsoft Customer Agreement is recorded.")
+    default_offer_id = fields.Many2one(
+        'm365.pc.offer', string="Default Offer",
+        domain="[('account_id', '=', id)]",
+        help="Offer bought when the Subscriptions of a customer give a quantity only, and "
+             "license \"default\" of the users file, e.g. Microsoft 365 Business Basic "
+             "(no Teams), monthly. The same offer is taken in the catalog of the country of "
+             "each customer.")
     offer_ids = fields.One2many('m365.pc.offer', 'account_id', string="Offers")
     offer_count = fields.Integer(compute='_compute_offer_count')
     last_offer_sync = fields.Datetime(string="Last Catalog Sync", readonly=True, copy=False)
@@ -90,14 +97,33 @@ class M365PartnerAccountPurchase(models.Model):
             path = nxt if nxt.startswith('/v1') else '/v1' + nxt
         return items
 
-    def _sync_offers(self):
-        """Read the new commerce offers of the catalog. :return: number of offers"""
+    def _catalog_countries(self):
+        """Catalog country of the account, then the countries of its tenants."""
         self.ensure_one()
-        country = (self.catalog_country or 'IN').strip().upper()
-        words = [w.strip().lower() for w in (self.catalog_filter or '').split(',') if w.strip()]
+        countries = [(self.catalog_country or 'IN').strip().upper()]
+        tenants = self.env['m365.tenant'].sudo().search([('partner_account_id', '=', self.id),
+                                                         ('country_id', '!=', False)])
+        for code in tenants.mapped('country_id.code'):
+            if code and code.upper() not in countries:
+                countries.append(code.upper())
+        return countries
+
+    def _sync_offers(self):
+        """Read the new commerce offers of the catalog, in the country of the account and
+        of each of its tenants. :return: number of offers"""
+        self.ensure_one()
         Offer = self.env['m365.pc.offer'].sudo().with_context(active_test=False)
         existing = {o._key(): o for o in Offer.search([('account_id', '=', self.id)])}
         seen, now = set(), fields.Datetime.now()
+        for country in self._catalog_countries():
+            self._sync_country_offers(country, Offer, existing, seen, now)
+        Offer.browse([o.id for k, o in existing.items() if k not in seen]).write(
+            {'active': False})
+        self.write({'last_offer_sync': now})
+        return len(seen)
+
+    def _sync_country_offers(self, country, Offer, existing, seen, now):
+        words = [w.strip().lower() for w in (self.catalog_filter or '').split(',') if w.strip()]
         products = self._pc_items('/v1/products?country=%s&targetView=%s' % (country, NCE_VIEW))
         for product in products:
             title = product.get('title') or ''
@@ -127,18 +153,15 @@ class M365PartnerAccountPurchase(models.Model):
                             'max_quantity': sku.get('maximumQuantity') or 0,
                             'active': True,
                             'last_refresh': now,
+                            'country': country,
                         }
-                        key = (vals['catalog_item_id'], vals['term_duration'] or '',
+                        key = (country, vals['catalog_item_id'], vals['term_duration'] or '',
                                vals['billing_cycle'] or '')
                         seen.add(key)
                         if key in existing:
                             existing[key].write(vals)
                         else:
                             existing[key] = Offer.create(dict(vals, account_id=self.id))
-        Offer.browse([o.id for k, o in existing.items() if k not in seen]).write(
-            {'active': False})
-        self.write({'last_offer_sync': now})
-        return len(seen)
 
     def action_sync_offers(self):
         self.env['m365.tenant']._check_admin()
@@ -176,21 +199,27 @@ class M365PcOffer(models.Model):
     billing_cycle = fields.Char(string="Billing")
     provisioning_id = fields.Char(string="Graph SKU ID", index=True,
                                   help="skuId of the licenses in Microsoft Graph.")
+    country = fields.Char(string="Country", size=2, index=True,
+                          help="Country of the catalog the offer was read from.")
     min_quantity = fields.Integer(string="Minimum")
     max_quantity = fields.Integer(string="Maximum")
     active = fields.Boolean(default=True)
     last_refresh = fields.Datetime(readonly=True)
 
-    @api.depends('name', 'sku_title', 'term_duration', 'billing_cycle')
+    @api.depends('name', 'sku_title', 'term_duration', 'billing_cycle', 'country')
     def _compute_display_name(self):
         for rec in self:
             title = rec.name if not rec.sku_title or rec.sku_title == rec.name else \
                 "%s - %s" % (rec.name, rec.sku_title)
-            rec.display_name = "%s [%s %s]" % (title, rec.term_duration or '-',
-                                               rec.billing_cycle or '-')
+            rec.display_name = "%s [%s %s%s]" % (title, rec.term_duration or '-',
+                                                 rec.billing_cycle or '-',
+                                                 ' %s' % rec.country if rec.country else '')
 
     def _key(self):
-        return (self.catalog_item_id, self.term_duration or '', self.billing_cycle or '')
+        # An offer without country comes from the catalog country of its account
+        country = self.country or (self.account_id.catalog_country or 'IN').upper()
+        return (country, self.catalog_item_id, self.term_duration or '',
+                self.billing_cycle or '')
 
 
 class M365PcOrder(models.Model):
@@ -242,6 +271,14 @@ class M365PcOrder(models.Model):
     currency = fields.Char(readonly=True, copy=False)
     company_id = fields.Many2one(related='tenant_id.company_id', store=True)
     is_admin = fields.Boolean(compute='_compute_is_admin')
+    catalog_country = fields.Char(compute='_compute_catalog_country',
+                                  help="Country of the catalog of the customer.")
+
+    @api.depends('tenant_id.country_id', 'account_id.catalog_country')
+    def _compute_catalog_country(self):
+        for rec in self:
+            rec.catalog_country = (rec.tenant_id.country_id.code or rec.account_id.catalog_country
+                                   or 'IN').upper()
 
     @api.depends_context('uid')
     def _compute_is_admin(self):
@@ -312,6 +349,11 @@ class M365PcOrder(models.Model):
             if offer.account_id != self.account_id:
                 raise UserError(_("%s is not an offer of this Partner Center account.",
                                   offer.display_name))
+            if offer.country and offer.country != self.catalog_country:
+                raise UserError(_("%(offer)s is an offer of the catalog of %(offer_country)s; "
+                                  "the customer buys in %(country)s.",
+                                  offer=offer.display_name, offer_country=offer.country,
+                                  country=self.catalog_country))
             if offer.min_quantity and line.quantity < offer.min_quantity or \
                     offer.max_quantity and line.quantity > offer.max_quantity:
                 raise UserError(_("%(offer)s: %(min)s to %(max)s licenses.",
@@ -506,8 +548,10 @@ class M365PcOrderLine(models.Model):
     sequence = fields.Integer(default=10)
     account_id = fields.Many2one(related='order_id.account_id')
     tenant_id = fields.Many2one(related='order_id.tenant_id', store=True)
+    catalog_country = fields.Char(related='order_id.catalog_country')
     offer_id = fields.Many2one('m365.pc.offer', string="Offer", required=True,
-                               domain="[('account_id', '=', account_id)]")
+                               domain="[('account_id', '=', account_id), "
+                                      "('country', 'in', [catalog_country, False])]")
     quantity = fields.Integer(required=True, default=1)
     subscription_id = fields.Char(string="Subscription ID", readonly=True, copy=False)
     pc_status = fields.Char(string="Partner Center Status", readonly=True, copy=False)
@@ -538,6 +582,15 @@ class M365TenantPurchase(models.Model):
                                                    ('sku_id', '=ilike', graph_sku_id)])
         return sum(skus.filtered(lambda s: s.status != 'Deleted').mapped('enabled_units'))
 
+    def _auto_product_name(self, part, graph_sku_id):
+        """Name of a license unknown to the product catalogue: the Partner Center offer
+        with the same Graph skuId, when there is one."""
+        offer = self.env['m365.pc.offer'].sudo().with_context(active_test=False).search(
+            [('provisioning_id', '=ilike', graph_sku_id)], limit=1)
+        if offer:
+            return offer.sku_title or offer.name
+        return super()._auto_product_name(part, graph_sku_id)
+
     def _purchase_channel(self):
         account = self.sudo().partner_account_id or self._default_partner_account()
         return account.purchase_channel if account else 'ingram'
@@ -556,6 +609,7 @@ class M365TenantPurchase(models.Model):
                 'sku_id')
             offer = self.env['m365.pc.offer'].search(
                 [('account_id', '=', account.id),
+                 ('country', 'in', [self._catalog_country(account), False]),
                  ('provisioning_id', 'in', [g.lower() for g in graph_ids])],
                 order='term_duration desc, billing_cycle desc', limit=1) if graph_ids else False
             if offer:

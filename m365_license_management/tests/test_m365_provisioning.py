@@ -120,7 +120,9 @@ class TestM365Gdap(ProvisioningCommon):
         body = post[3]
         self.assertEqual((body['duration'], body['autoExtendDuration'],
                           body['customer']['tenantId']), ('P730D', 'P180D', 'tid-contoso'))
-        self.assertEqual(len(body['accessDetails']['unifiedRoles']), 5)
+        # User, License and Helpdesk Administrator, Directory Readers, Global Reader and
+        # Privileged Role Administrator (Install Shared App)
+        self.assertEqual(len(body['accessDetails']['unifiedRoles']), 6)
         self.assertLessEqual(len(body['displayName']), 50)
         self.assertEqual((lock[1], lock[3]), (RELATIONSHIPS + '/rel-new/requests',
                                               {'action': 'lockForApproval'}))
@@ -301,15 +303,15 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
         self.assertEqual(self.tenant.prov_verification, 'failed')
 
     def test_steps_and_next(self):
+        """Steps in order: tenant, GDAP, agreement, connection, domains, subscriptions,
+        users, licenses, verification; Next Step runs the first one Odoo can run."""
         self.tenant.state = 'draft'
         tenant = self.tenant
-        self.assertEqual((tenant.prov_tenant, tenant.prov_connection), ('done', 'action'))
+        # Own app registration with its secret: Odoo can test the connection itself
+        self.assertEqual((tenant.prov_tenant, tenant.prov_connection), ('done', 'pending'))
+        # Agreement recorded on the tenant; no custom domain
+        self.assertEqual((tenant.prov_agreement, tenant.prov_domains), ('done', 'na'))
         self.assertEqual(tenant.prov_state, 'progress')
-        self.env['ir.config_parameter'].set_param('web.base.url', 'https://odoo.example.com')
-        action = tenant.with_user(self.admin).action_provisioning_next()
-        self.assertEqual(action['type'], 'ir.actions.act_url')  # Grant Consent
-        tenant.write({'state': 'connected', 'connection_mode': 'shared_app'})
-        tenant.state = 'connected'
 
         def partner_graph(method, path, params=None, json_body=None, paginate=False):
             return [] if method == 'GET' else {'id': 'rel-9', 'displayName': 'x'}
@@ -318,8 +320,18 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
             tenant.with_user(self.admin).action_provisioning_next()  # requests GDAP
         self.assertEqual(tenant.gdap_status, 'approvalPending')
         self.assertEqual(tenant.prov_gdap, 'action')
+        # Without app registration secret nor signed-in partner user: Grant Consent
+        tenant.sudo().client_secret = False
+        self.assertEqual(tenant.prov_connection, 'action')
+        self.env['ir.config_parameter'].set_param('web.base.url', 'https://odoo.example.com')
         tenant.gdap_status = 'active'
+        self.assertEqual(tenant.prov_gdap, 'done')
+        action = tenant.with_user(self.admin).action_provisioning_next()
+        self.assertEqual(action['type'], 'ir.actions.act_url')  # Grant Consent
+        tenant.write({'state': 'connected', 'connection_mode': 'shared_app'})
+        tenant.state = 'connected'  # a new connection mode sets it back to Not Tested
         tenant.requested_subscriptions = 'Microsoft 365 E3 = 3'
+        self.assertEqual(tenant.prov_agreement, 'done')  # recorded on the tenant
         tenant.with_user(self.admin).action_provisioning_next()
         self.assertEqual(tenant.pc_order_ids.state, 'submitted')
         self.assertEqual(tenant.prov_subscriptions, 'action')

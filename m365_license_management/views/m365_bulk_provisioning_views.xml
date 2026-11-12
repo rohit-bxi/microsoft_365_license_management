@@ -1,0 +1,464 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================================================
+         Partner Center account: partner user sign-in, customer setup
+         ============================================================ -->
+    <record id="view_m365_partner_account_form_bulk" model="ir.ui.view">
+        <field name="name">m365.partner.account.form.bulk</field>
+        <field name="model">m365.partner.account</field>
+        <field name="inherit_id" ref="view_m365_partner_account_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='consent_redirect_uri']" position="after">
+                <field name="signin_redirect_uri" widget="CopyClipboardChar"/>
+            </xpath>
+            <xpath expr="//notebook" position="before">
+                <group>
+                    <group string="Partner User (App+User)">
+                        <field name="pc_user_state" widget="badge"
+                               decoration-success="pc_user_state == 'signed_in'"
+                               decoration-danger="pc_user_state == 'expired'"/>
+                        <field name="pc_user_name" invisible="not pc_user_name"/>
+                        <field name="pc_user_signin_date" invisible="not pc_user_signin_date"/>
+                        <field name="pc_user_error" invisible="not pc_user_error"/>
+                        <div colspan="2" groups="base.group_system">
+                            <button name="action_partner_signin" type="object"
+                                    string="Sign In as Partner User" class="btn-secondary me-2"
+                                    invisible="not graph_client_id"/>
+                            <button name="action_partner_signout" type="object"
+                                    string="Sign Out" class="btn-link"
+                                    invisible="pc_user_state == 'none'"
+                                    confirm="Sign out the partner user? The automatic provisioning cannot accept agreements nor install the shared app until a new sign-in."/>
+                        </div>
+                    </group>
+                    <group string="Customer Tenant Setup">
+                        <field name="install_permissions"/>
+                        <field name="install_scopes"/>
+                        <field name="gdap_group_id"/>
+                        <field name="gdap_assignment_role_ids" invisible="not gdap_group_id"/>
+                        <field name="default_offer_id" options="{'no_create': True}"
+                               invisible="purchase_channel != 'partner_center'"/>
+                    </group>
+                </group>
+            </xpath>
+            <xpath expr="//page[@name='guide']/div" position="inside">
+                <h4>5. Bulk provisioning without customer sign-in</h4>
+                <p>To accept the Microsoft Customer Agreement and install the shared app in the
+                   new tenants, Microsoft requires a signed-in partner user (App+User):</p>
+                <ul>
+                    <li>Create a dedicated partner service user with the <i>Admin Agent</i>
+                        role in Partner Center and register MFA for it.</li>
+                    <li>On the shared app, add the <i>delegated</i> permissions Partner Center
+                        <code>user_impersonation</code> and Microsoft Graph
+                        <code>Application.Read.All</code> and
+                        <code>AppRoleAssignment.ReadWrite.All</code>, the
+                        <b>Partner Sign-in Redirect URI</b> above, and the application
+                        permission <code>DelegatedAdminRelationship.ReadWrite.All</code>
+                        (admin consent in the partner tenant).</li>
+                    <li>Create a security group in the partner tenant, add the service user to
+                        it and enter its object ID in <b>GDAP Security Group</b>: Odoo gives it
+                        the GDAP roles in each customer (with <i>Privileged Role
+                        Administrator</i>, needed to grant the permissions of the shared
+                        app).</li>
+                    <li>A system administrator presses <b>Sign In as Partner User</b> and signs
+                        in as the service user. Odoo keeps it signed in; sign in again when
+                        Odoo asks (about every 90 days).</li>
+                </ul>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Tenant form
+         ============================================================ -->
+    <record id="view_m365_tenant_form_bulk" model="ir.ui.view">
+        <field name="name">m365.tenant.form.bulk</field>
+        <field name="model">m365.tenant</field>
+        <field name="inherit_id" ref="view_m365_tenant_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_pending_users" type="object" class="oe_stat_button"
+                        icon="fa-user-plus" invisible="not pending_user_count"
+                        groups="m365_license_management.group_m365_admin">
+                    <field name="pending_user_count" widget="statinfo" string="Users to Create"/>
+                </button>
+            </xpath>
+            <!-- Creation: custom domains -->
+            <xpath expr="//page[@name='creation']//field[@name='enable_gdap']" position="after">
+                <field name="custom_domains" placeholder="contoso.com; contoso.in"/>
+                <field name="custom_domain_default" invisible="not custom_domains"/>
+                <field name="auto_initial_domain" readonly="provision_state in ('queued', 'done')"/>
+            </xpath>
+            <!-- Provisioning: steps, automatic run, agreement, shared app -->
+            <xpath expr="//page[@name='provisioning']/group[1]/group[1]" position="replace">
+                <group string="Steps">
+                    <field name="prov_state" widget="badge"
+                           decoration-success="prov_state == 'done'"
+                           decoration-danger="prov_state == 'failed'"
+                           decoration-info="prov_state == 'progress'"/>
+                    <field name="prov_tenant"/>
+                    <field name="prov_gdap"/>
+                    <field name="prov_agreement"/>
+                    <field name="prov_connection"/>
+                    <field name="prov_domains"/>
+                    <field name="prov_subscriptions"/>
+                    <field name="prov_users"/>
+                    <field name="prov_licenses"/>
+                    <field name="prov_verification"/>
+                    <field name="prov_summary"/>
+                </group>
+            </xpath>
+            <xpath expr="//page[@name='provisioning']//field[@name='gdap_error']" position="after">
+                <field name="gdap_assignment_status" invisible="not gdap_assignment_status"/>
+                <field name="gdap_role_ids" invisible="1"/>
+            </xpath>
+            <xpath expr="//page[@name='provisioning']//button[@name='action_request_gdap']" position="after">
+                <button name="action_gdap_assign_group" type="object" string="Give Roles to Group"
+                        class="btn-secondary ms-2"
+                        invisible="gdap_status not in ('active', 'expiring') or gdap_assignment_status in ('active', 'pending')"/>
+            </xpath>
+            <xpath expr="//page[@name='provisioning']/group[1]" position="after">
+                <group groups="m365_license_management.group_m365_admin">
+                    <group string="Automatic Run">
+                        <field name="auto_provision" readonly="1"/>
+                        <field name="prov_user_id" readonly="1" invisible="not prov_user_id"/>
+                        <field name="prov_approve_orders"/>
+                        <field name="prov_next_run" invisible="not auto_provision"/>
+                        <field name="prov_last_run" invisible="not prov_last_run"/>
+                        <field name="prov_attempts" invisible="not prov_attempts"/>
+                        <field name="prov_waiting" invisible="not prov_waiting"/>
+                        <field name="prov_error" invisible="not prov_error"/>
+                        <div colspan="2">
+                            <button name="action_auto_provision_start" type="object"
+                                    string="Run Automatically" class="btn-primary me-2"
+                                    invisible="auto_provision or prov_state == 'done'"/>
+                            <button name="action_auto_provision_stop" type="object"
+                                    string="Stop" class="btn-secondary"
+                                    invisible="not auto_provision"/>
+                        </div>
+                    </group>
+                    <group string="Shared App (without customer sign-in)">
+                        <field name="app_install_state"/>
+                        <field name="app_install_date" invisible="not app_install_date"/>
+                        <field name="app_install_error" invisible="not app_install_error"/>
+                        <div colspan="2">
+                            <button name="action_install_shared_app" type="object"
+                                    string="Install Shared App" class="btn-secondary"
+                                    invisible="state == 'connected' or not tenant_id"
+                                    confirm="Install the shared app in this tenant as the signed-in partner user and grant its Microsoft Graph permissions?"/>
+                        </div>
+                    </group>
+                </group>
+                <field name="pending_user_ids" invisible="not pending_user_ids"
+                       groups="m365_license_management.group_m365_admin">
+                    <list editable="bottom" create="0" decoration-danger="state == 'failed'"
+                          decoration-muted="state in ('created', 'licensed')">
+                        <field name="user_name" readonly="state != 'waiting'"/>
+                        <field name="upn"/>
+                        <field name="name" readonly="state != 'waiting'"/>
+                        <field name="licenses" readonly="state != 'waiting'"/>
+                        <field name="usage_location" readonly="state != 'waiting'" optional="hide"/>
+                        <field name="state" widget="badge"
+                               decoration-success="state == 'licensed'"
+                               decoration-info="state in ('waiting', 'created')"
+                               decoration-danger="state == 'failed'"/>
+                        <field name="wait_reason"/>
+                        <field name="error" optional="show"/>
+                        <field name="has_password" string="Password to Download" optional="show"/>
+                    </list>
+                </field>
+                <div class="mt-1" invisible="not pending_user_ids"
+                     groups="m365_license_management.group_m365_admin">
+                    <button name="action_download_credentials" type="object"
+                            string="Download Credentials" class="btn-link"
+                            confirm="Download the temporary passwords? They are removed from Odoo by the download."/>
+                </div>
+            </xpath>
+            <!-- Purchasing: agreement through Partner Center -->
+            <xpath expr="//page[@name='purchasing']//field[@name='mca_accepted']" position="before">
+                <field name="mca_customer_confirmed"/>
+                <field name="mca_attested" invisible="not mca_attested"/>
+                <field name="mca_attest_date" invisible="not mca_attest_date"/>
+                <field name="mca_error" invisible="not mca_error"/>
+                <div colspan="2" invisible="mca_attested or not tenant_id">
+                    <button name="action_attest_mca" type="object"
+                            string="Accept in Partner Center" class="btn-secondary"
+                            confirm="Attest in Partner Center that the customer accepted the Microsoft Customer Agreement?"/>
+                </div>
+            </xpath>
+            <!-- Domains: status and DNS records -->
+            <xpath expr="//page[@name='domains']//button[@name='action_sync_domains']" position="after">
+                <button name="action_send_dns_records" type="object" string="Send DNS Records"
+                        class="btn-secondary ms-2" invisible="state == 'draft'"/>
+            </xpath>
+            <xpath expr="//page[@name='domains']//field[@name='domain_ids']/list/field[@name='is_verified']" position="before">
+                <field name="state" widget="badge"
+                       decoration-success="state == 'verified'"
+                       decoration-info="state in ('to_add', 'pending')"
+                       decoration-warning="state == 'action'"
+                       decoration-danger="state == 'failed'"/>
+                <field name="txt_record"/>
+                <field name="next_check" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Provisioning list: the new steps and the automatic run -->
+    <record id="view_m365_tenant_provisioning_list_bulk" model="ir.ui.view">
+        <field name="name">m365.tenant.provisioning.list.bulk</field>
+        <field name="model">m365.tenant</field>
+        <field name="inherit_id" ref="view_m365_tenant_provisioning_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header/button[@name='action_provisioning_next']" position="after">
+                <button name="action_auto_provision_start" type="object"
+                        string="Run Automatically"
+                        groups="m365_license_management.group_m365_admin"/>
+                <button name="action_auto_provision_stop" type="object" string="Stop"
+                        groups="m365_license_management.group_m365_admin"/>
+            </xpath>
+            <xpath expr="//field[@name='prov_connection']" position="before">
+                <field name="prov_gdap" position="move"/>
+                <field name="prov_agreement" widget="badge"
+                       decoration-success="prov_agreement == 'done'"
+                       decoration-danger="prov_agreement == 'failed'"
+                       decoration-warning="prov_agreement in ('pending', 'action')"/>
+            </xpath>
+            <xpath expr="//field[@name='prov_connection']" position="after">
+                <field name="prov_domains" widget="badge"
+                       decoration-success="prov_domains == 'done'"
+                       decoration-danger="prov_domains == 'failed'"
+                       decoration-warning="prov_domains in ('pending', 'action')"/>
+            </xpath>
+            <xpath expr="//field[@name='prov_summary']" position="after">
+                <field name="auto_provision" string="Auto" optional="show"/>
+                <field name="prov_waiting" optional="show"/>
+                <field name="prov_error" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_m365_tenant_auto_provision" model="ir.actions.server">
+        <field name="name">Run Provisioning Automatically</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="binding_model_id" ref="model_m365_tenant"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('m365_license_management.group_m365_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_auto_provision_start()</field>
+    </record>
+
+    <!-- ============================================================
+         Domains
+         ============================================================ -->
+    <record id="view_m365_tenant_domain_list_bulk" model="ir.ui.view">
+        <field name="name">m365.tenant.domain.list.bulk</field>
+        <field name="model">m365.tenant.domain</field>
+        <field name="inherit_id" ref="view_m365_tenant_domain_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='is_verified']" position="before">
+                <field name="state" widget="badge"
+                       decoration-success="state == 'verified'"
+                       decoration-info="state in ('to_add', 'pending')"
+                       decoration-warning="state == 'action'"
+                       decoration-danger="state == 'failed'"/>
+                <field name="txt_record" optional="show"/>
+                <field name="next_check" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_tenant_domain_form_bulk" model="ir.ui.view">
+        <field name="name">m365.tenant.domain.form.bulk</field>
+        <field name="model">m365.tenant.domain</field>
+        <field name="inherit_id" ref="view_m365_tenant_domain_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header/button[@name='action_refresh_records']" position="after">
+                <button name="action_retry" type="object" string="Retry"
+                        invisible="state not in ('failed', 'action')"
+                        groups="m365_license_management.group_m365_admin"/>
+                <field name="state" widget="statusbar" statusbar_visible="to_add,pending,verified"/>
+            </xpath>
+            <xpath expr="//field[@name='last_refresh']" position="after">
+                <field name="txt_record" widget="CopyClipboardChar" invisible="not txt_record"/>
+                <field name="make_default"/>
+                <field name="added_date" invisible="not added_date"/>
+                <field name="verify_attempts" invisible="not verify_attempts"/>
+                <field name="next_check" invisible="not next_check"/>
+                <field name="error" invisible="not error"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Users to create
+         ============================================================ -->
+    <record id="view_m365_pending_user_list" model="ir.ui.view">
+        <field name="name">m365.tenant.pending.user.list</field>
+        <field name="model">m365.tenant.pending.user</field>
+        <field name="arch" type="xml">
+            <list string="Users to Create" create="0" decoration-danger="state == 'failed'"
+                  decoration-muted="state in ('created', 'licensed')">
+                <header>
+                    <button name="action_create_now" type="object" string="Create Now"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_download_credentials" type="object"
+                            string="Download Credentials"
+                            groups="m365_license_management.group_m365_admin"/>
+                </header>
+                <field name="tenant_id"/>
+                <field name="upn"/>
+                <field name="name"/>
+                <field name="licenses"/>
+                <field name="usage_location" optional="hide"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'licensed'"
+                       decoration-info="state in ('waiting', 'created')"
+                       decoration-danger="state == 'failed'"/>
+                <field name="wait_reason"/>
+                <field name="error" optional="show"/>
+                <field name="has_password" string="Password to Download" optional="show"/>
+                <field name="created_date" optional="hide"/>
+                <field name="requested_by" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_m365_pending_user_form" model="ir.ui.view">
+        <field name="name">m365.tenant.pending.user.form</field>
+        <field name="model">m365.tenant.pending.user</field>
+        <field name="arch" type="xml">
+            <form string="User to Create" create="0">
+                <header>
+                    <button name="action_create_now" type="object" string="Create Now"
+                            class="btn-primary" invisible="state != 'waiting'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_retry" type="object" string="Retry"
+                            invisible="state != 'failed'"
+                            groups="m365_license_management.group_m365_admin"/>
+                    <field name="state" widget="statusbar" statusbar_visible="waiting,created,licensed"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-warning" role="alert" invisible="not wait_reason">
+                        Waiting for: <field name="wait_reason" class="d-inline"/>
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="not error">
+                        <field name="error" class="d-inline"/>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="tenant_id" readonly="1"/>
+                            <field name="user_name" readonly="state != 'waiting'"/>
+                            <field name="upn"/>
+                            <field name="name" readonly="state != 'waiting'"/>
+                            <field name="given_name" readonly="state != 'waiting'"/>
+                            <field name="surname" readonly="state != 'waiting'"/>
+                        </group>
+                        <group>
+                            <field name="usage_location" readonly="state != 'waiting'"/>
+                            <field name="licenses" readonly="state != 'waiting'"/>
+                            <field name="department" readonly="state != 'waiting'"/>
+                            <field name="job_title" readonly="state != 'waiting'"/>
+                            <field name="user_id" invisible="not user_id"/>
+                            <field name="request_ids" widget="many2many_tags" invisible="not request_ids"/>
+                            <field name="created_date" invisible="not created_date"/>
+                            <field name="requested_by"/>
+                            <field name="has_password" invisible="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_m365_pending_user_search" model="ir.ui.view">
+        <field name="name">m365.tenant.pending.user.search</field>
+        <field name="model">m365.tenant.pending.user</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="upn"/>
+                <field name="name"/>
+                <field name="tenant_id"/>
+                <filter name="waiting" string="Waiting" domain="[('state', '=', 'waiting')]"/>
+                <filter name="failed" string="Failed" domain="[('state', '=', 'failed')]"/>
+                <filter name="with_password" string="Password to Download"
+                        domain="[('state', 'in', ('created', 'licensed'))]"/>
+                <group>
+                    <filter name="group_tenant" string="Tenant" context="{'group_by': 'tenant_id'}"/>
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_m365_pending_user" model="ir.actions.act_window">
+        <field name="name">Users to Create</field>
+        <field name="res_model">m365.tenant.pending.user</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No user waiting</p>
+            <p>The users of the Users sheet of the customer file (Bulk Import Tenant, type
+               New) are created here as soon as their tenant is ready.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Customer file import: options and users
+         ============================================================ -->
+    <record id="view_m365_tenant_import_wizard_bulk" model="ir.ui.view">
+        <field name="name">m365.tenant.import.wizard.form.bulk</field>
+        <field name="model">m365.tenant.import.wizard</field>
+        <field name="inherit_id" ref="view_m365_tenant_import_wizard"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='filename']" position="after">
+                <field name="users_file" filename="users_filename"
+                       invisible="tenant_type != 'new'"/>
+                <field name="users_filename" invisible="1"/>
+            </xpath>
+            <xpath expr="//form/group" position="after">
+                <group string="Options of the New Tenants" invisible="tenant_type != 'new'">
+                    <group>
+                        <field name="auto_provision"/>
+                        <field name="approve_orders"/>
+                        <field name="mca_confirmed"/>
+                    </group>
+                    <group>
+                        <field name="make_custom_default"/>
+                        <field name="pick_free_domain"/>
+                        <field name="user_count" invisible="not user_count"/>
+                    </group>
+                </group>
+            </xpath>
+            <xpath expr="//field[@name='line_ids']/list/field[@name='country']" position="after">
+                <field name="user_count" column_invisible="parent.tenant_type != 'new'"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Partner Center offers: country, no Teams
+         ============================================================ -->
+    <record id="view_m365_pc_offer_list_bulk" model="ir.ui.view">
+        <field name="name">m365.pc.offer.list.bulk</field>
+        <field name="model">m365.pc.offer</field>
+        <field name="inherit_id" ref="view_m365_pc_offer_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='billing_cycle']" position="after">
+                <field name="country" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_pc_offer_search_bulk" model="ir.ui.view">
+        <field name="name">m365.pc.offer.search.bulk</field>
+        <field name="model">m365.pc.offer</field>
+        <field name="inherit_id" ref="view_m365_pc_offer_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='annual']" position="after">
+                <filter name="no_teams" string="No Teams"
+                        domain="['|', ('name', 'ilike', 'no Teams'), ('sku_title', 'ilike', 'no Teams')]"/>
+            </xpath>
+            <xpath expr="//field[@name='catalog_item_id']" position="after">
+                <field name="country"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

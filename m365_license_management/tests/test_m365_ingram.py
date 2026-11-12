@@ -147,6 +147,32 @@ class TestM365Ingram(IngramCommon):
             self.assertEqual(self.account._im_request('GET', '/x'), (200, {'ok': 1}))
         get.assert_called_once()
         sleep.assert_called_once_with(1)
+        # Valid credentials, but no API product for the path (Apigee): explained, and no
+        # new token requested since it would not help
+        no_product = http_response(401, {'fault': {
+            'faultstring': 'Invalid API call as no apiproduct match found',
+            'detail': {'errorcode': 'keymanagement.service.'
+                                    'InvalidAPICallAsNoApiProductMatchFound'}}})
+        no_product.url = 'https://api.ingrammicro.com:443/resellers/v6/catalog?pageSize=1'
+        self.account.sudo().write({'access_token': 'im-tok',
+                                   'token_expiry': fields.Datetime.now() + timedelta(hours=1)})
+        with patch(TOKEN_GET) as get, patch(HTTP_CALL, return_value=no_product) as call:
+            action = self.account.with_user(self.admin).action_test_connection()
+        get.assert_not_called()
+        call.assert_called_once()
+        self.assertEqual((action['params']['type'], self.account.state), ('danger', 'error'))
+        self.assertIn('has no API product for /resellers/v6/catalog', self.account.last_error)
+        self.assertIn('/sandbox', self.account.last_error)
+        # Sandbox app: API calls under /sandbox, token at the root of the host
+        self.account.api_url = 'https://api.ingrammicro.com:443/sandbox/'
+        with patch(TOKEN_GET, return_value=token) as get, \
+                patch(HTTP_CALL, return_value=http_response(200, {'recordsFound': 3})) as call:
+            self.account.with_user(self.admin).action_test_connection()
+        self.assertEqual(get.call_args.args,
+                         ('https://api.ingrammicro.com:443/oauth/oauth20/token',))
+        self.assertEqual(call.call_args.args,
+                         ('GET', 'https://api.ingrammicro.com:443/sandbox/resellers/v6/catalog'))
+        self.assertEqual(self.account.state, 'connected')
         # Credentials changed by an administrator: token forgotten
         self.account.with_user(self.admin).client_secret = 'new'
         self.assertFalse(self.account.sudo().access_token)

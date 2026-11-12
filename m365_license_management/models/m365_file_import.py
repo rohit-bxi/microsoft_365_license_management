@@ -55,19 +55,36 @@ class M365FileImportMixin(models.AbstractModel):
         finally:
             book.close()
 
+    @staticmethod
+    def _read_xlsx_sheet(raw, title):
+        """Rows of the sheet named ``title`` (case insensitive), None when there is none."""
+        try:
+            book = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        except Exception as exc:  # noqa: BLE001 - any unreadable / non-xlsx content
+            raise UserError(_("The Excel file could not be read: %s", exc))
+        try:
+            for sheet in book.worksheets:
+                if sheet.title.strip().lower() == title.lower():
+                    return [list(row) for row in sheet.iter_rows(values_only=True)]
+            return None
+        finally:
+            book.close()
+
+    def _rows_of(self, raw, filename):
+        """Rows of a CSV file, or of the first sheet of an Excel file."""
+        name = (filename or '').lower()
+        if name.endswith('.xlsx'):
+            return self._read_xlsx(raw)
+        if name.endswith('.csv'):
+            return self._read_csv(raw)
+        raise UserError(_("Unsupported file type. Please upload a .csv or .xlsx file."))
+
     def _read_rows(self):
         """Return the non-empty rows of the uploaded file as lists of cell texts."""
         self.ensure_one()
         if not self.file:
             raise UserError(_("Please upload a CSV or Excel (.xlsx) file."))
-        raw = base64.b64decode(self.file)
-        name = (self.filename or '').lower()
-        if name.endswith('.xlsx'):
-            rows = self._read_xlsx(raw)
-        elif name.endswith('.csv'):
-            rows = self._read_csv(raw)
-        else:
-            raise UserError(_("Unsupported file type. Please upload a .csv or .xlsx file."))
+        rows = self._rows_of(base64.b64decode(self.file), self.filename)
         result = []
         for row in rows:
             values = [self._cell_text(v) for v in row]

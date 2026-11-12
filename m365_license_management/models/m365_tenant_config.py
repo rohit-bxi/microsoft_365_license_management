@@ -44,6 +44,15 @@ class M365TenantConfig(models.Model):
         copy=False, help="As last read from Microsoft 365 (empty: not read yet).")
     domain_ids = fields.One2many('m365.tenant.domain', 'tenant_id', string="Domains")
     domain_count = fields.Integer(compute='_compute_domain_count')
+    dns_pending_domain_ids = fields.Many2many(
+        'm365.tenant.domain', compute='_compute_dns_pending_domain_ids',
+        string="Domains Waiting for DNS")
+
+    @api.depends('domain_ids.state', 'domain_ids.txt_record')
+    def _compute_dns_pending_domain_ids(self):
+        for rec in self:
+            rec.dns_pending_domain_ids = rec.domain_ids.filtered(
+                lambda d: d.state in ('pending', 'action') and d.txt_record)
 
     @api.depends('domain_ids')
     def _compute_domain_count(self):
@@ -95,11 +104,23 @@ class M365TenantConfig(models.Model):
                 continue
             vals = Domain._values(item)
             if name in existing:
-                existing.pop(name).write(vals)
+                domain = existing.pop(name)
+                if vals['is_verified']:
+                    vals.update(state='verified', next_check=False)
+                elif domain.state in ('to_add', 'failed'):
+                    # Added outside Odoo meanwhile: verified automatically from now
+                    vals.update(state='pending', next_check=fields.Datetime.now(),
+                                added_date=domain.added_date or fields.Datetime.now())
+                elif domain.state == 'verified':
+                    vals['state'] = 'pending'
+                domain.write(vals)
             else:
-                Domain.create(dict(vals, tenant_id=self.id, name=name))
-        if existing:  # removed in Microsoft 365
-            Domain.browse([d.id for d in existing.values()]).unlink()
+                Domain.create(dict(vals, tenant_id=self.id, name=name,
+                                   state='verified' if vals['is_verified'] else 'pending'))
+        # Removed in Microsoft 365; the custom domains not added yet are kept
+        gone = [d.id for d in existing.values() if d.state not in ('to_add', 'failed')]
+        if gone:
+            Domain.browse(gone).unlink()
         return items
 
     # ------------------------------------------------------------------
@@ -205,6 +226,28 @@ class M365TenantConfig(models.Model):
             tenant._sync_domains()
             tenant._log('domain', 'info', _("%s domain(s) read.", tenant.domain_count))
         return self._notify(_("Domains refreshed."))
+
+    def action_send_dns_records(self):
+        """Email the TXT records of the domains waiting for DNS to the customer."""
+        self._check_admin()
+        self.ensure_one()
+        if not self.dns_pending_domain_ids:
+            raise UserError(_("No domain of %s waits for its DNS record.", self.name))
+        template = self.env.ref('m365_license_management.mail_template_m365_dns_records')
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _("Send DNS Records"),
+            'res_model': 'mail.compose.message',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_model': self._name,
+                'default_res_ids': self.ids,
+                'default_template_id': template.id,
+                'default_composition_mode': 'comment',
+                'default_email_layout_xmlid': 'mail.mail_notification_light',
+            },
+        }
 
     def action_add_domain(self):
         self._check_admin()

@@ -187,13 +187,19 @@ class M365PartnerAccount(models.Model):
         :return: (HTTP status, JSON body or ``{}``)
         :raise M365PartnerCenterTimeout: no answer, retry with the same request ID
         """
+        return self._pc_send(self._get_access_token, method, path, json_body=json_body,
+                             request_id=request_id, expect=expect)
+
+    def _pc_send(self, get_token, method, path, json_body=None, request_id=None, expect=()):
+        """Partner Center call with the token of ``get_token(force=False)``: app-only
+        (``_pc_request``) or of the signed-in partner user (``_pc_user_request``)."""
         self.ensure_one()
         url = "%s/%s" % (self.api_url.rstrip('/'), path.lstrip('/'))
         request_id = request_id or str(uuid.uuid4())
         retries, refreshed = 0, False
         while True:
             headers = {
-                'Authorization': 'Bearer %s' % self._get_access_token(),
+                'Authorization': 'Bearer %s' % get_token(),
                 'Accept': 'application/json',
                 'MS-RequestId': request_id,
                 'MS-CorrelationId': str(uuid.uuid4()),
@@ -208,7 +214,7 @@ class M365PartnerAccount(models.Model):
                     _("Partner Center did not answer: %s", exc)) from None
             if resp.status_code == 401 and not refreshed:
                 refreshed = True
-                self._get_access_token(force=True)
+                get_token(force=True)
                 continue
             if resp.status_code in (429, 503) and retries < 3:
                 retries += 1

@@ -61,3 +61,5 @@ access_m365_pc_order_user,m365.pc.order user,model_m365_pc_order,m365_license_ma
 access_m365_pc_order_admin,m365.pc.order admin,model_m365_pc_order,m365_license_management.group_m365_admin,1,1,1,1
 access_m365_pc_order_line_user,m365.pc.order.line user,model_m365_pc_order_line,m365_license_management.group_m365_user,1,0,0,0
 access_m365_pc_order_line_admin,m365.pc.order.line admin,model_m365_pc_order_line,m365_license_management.group_m365_admin,1,1,1,1
+access_m365_pending_user_user,m365.tenant.pending.user user,model_m365_tenant_pending_user,m365_license_management.group_m365_user,1,0,0,0
+access_m365_pending_user_admin,m365.tenant.pending.user admin,model_m365_tenant_pending_user,m365_license_management.group_m365_admin,1,1,1,1

@@ -5,3 +5,4 @@ from . import webhook
 from . import portal
 from . import consent
 from . import ingram
+from . import partner_signin

@@ -16,6 +16,9 @@ from . import m365_tenant_domain
 from . import m365_tenant_config
 from . import m365_tenant_security
 from . import m365_tenant_gdap
+from . import m365_partner_signin
+from . import m365_tenant_agreement
+from . import m365_tenant_app_install
 from . import m365_file_import
 from . import m365_tenant_import
 from . import m365_sku
@@ -24,6 +27,7 @@ from . import m365_license_user
 from . import m365_license_request
 from . import m365_license_bulk
 from . import m365_user_create
+from . import m365_pending_user
 from . import m365_user_mfa
 from . import m365_dashboard
 from . import m365_tenant_portal

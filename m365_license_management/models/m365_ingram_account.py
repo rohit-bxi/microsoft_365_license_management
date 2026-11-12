@@ -24,6 +24,7 @@ entered as *Vendor Fields* on the account.
 Reference: https://developer.ingrammicro.com/reseller
 """
 import re
+import urllib.parse
 import time
 import uuid
 from datetime import timedelta
@@ -49,6 +50,11 @@ class M365IngramError(M365GraphError):
         self.status = status
 
 
+# Apigee (gateway of the Ingram Micro API): the client ID is valid but its app has no API
+# product for the path called
+NO_API_PRODUCT = 'InvalidAPICallAsNoApiProductMatchFound'
+
+
 class M365IngramTimeout(M365IngramError):
     """Ingram Micro did not answer: the call may have been executed."""
 
@@ -65,7 +71,10 @@ class M365IngramAccount(models.Model):
                                  default=lambda self: self.env.company)
     api_url = fields.Char(string="API URL", required=True,
                           default='https://api.ingrammicro.com:443',
-                          help="Production or sandbox address given by Ingram Micro.")
+                          help="Production: https://api.ingrammicro.com:443\n"
+                               "Sandbox app (API products marked Sandbox): "
+                               "https://api.ingrammicro.com:443/sandbox\n"
+                               "The token is always requested at the root of the host.")
     client_id = fields.Char(string="Client ID", required=True, copy=False, tracking=True)
     client_secret = fields.Char(string="Client Secret", copy=False, groups=ADMIN_GROUP)
     customer_number = fields.Char(string="Customer Number", required=True, tracking=True,
@@ -180,11 +189,32 @@ class M365IngramAccount(models.Model):
                 text = err.get('message') or err.get('type') or ''
                 parts.append("%s (%s)" % (text, detail) if detail else text)
             return "HTTP %s: %s" % (resp.status_code, " ".join(parts))
+        fault = data.get('fault') if isinstance(data, dict) else None
+        if isinstance(fault, dict) and NO_API_PRODUCT in str(
+                (fault.get('detail') or {}).get('errorcode') or ''):
+            return _(
+                "HTTP %(status)s: Ingram Micro refused the call: the app of this Client ID "
+                "has no API product for %(path)s (%(fault)s). The credentials are valid. "
+                "Check that the Client ID and Secret are the ones of the app in the Ingram "
+                "Micro developer portal; that the API URL matches the app (a Sandbox app: "
+                "https://api.ingrammicro.com:443/sandbox, a production app: "
+                "https://api.ingrammicro.com:443); and that the app is approved for its API "
+                "products (adding products needs a new approval by Ingram Micro). Then press "
+                "Test Connection again.", status=resp.status_code,
+                path=urllib.parse.urlparse(resp.url or '').path or '-',
+                fault=fault.get('faultstring') or NO_API_PRODUCT)
         if isinstance(data, dict) and (data.get('error') or data.get('fault')):
             fault = data.get('fault') or {}
             return "HTTP %s: %s" % (resp.status_code, data.get('error_description')
                                     or data.get('error') or fault.get('faultstring') or '')
         return "HTTP %s: %s" % (resp.status_code, str(data)[:300])
+
+    def _token_url(self):
+        """OAuth token endpoint: at the root of the host, also for the sandbox, whose API
+        URL ends with /sandbox (``/sandbox/oauth/...`` does not exist)."""
+        self.ensure_one()
+        url = urllib.parse.urlparse(self.api_url.strip())
+        return "%s://%s/oauth/oauth20/token" % (url.scheme or 'https', url.netloc)
 
     def _get_access_token(self, force=False):
         """Cached client-credentials token of the Ingram Micro API."""
@@ -199,7 +229,7 @@ class M365IngramAccount(models.Model):
                                     "are required."))
         try:
             # As specified by Ingram Micro: GET with the credentials as query parameters
-            resp = requests.get("%s/oauth/oauth20/token" % rec.api_url.rstrip('/'), params={
+            resp = requests.get(rec._token_url(), params={
                 'grant_type': 'client_credentials',
                 'client_id': rec.client_id.strip(),
                 'client_secret': rec.client_secret.strip(),
@@ -244,7 +274,8 @@ class M365IngramAccount(models.Model):
                                         json=json_body, timeout=90)
             except requests.RequestException as exc:
                 raise M365IngramTimeout(_("Ingram Micro did not answer: %s", exc)) from None
-            if resp.status_code == 401 and not refreshed:
+            if resp.status_code == 401 and not refreshed and NO_API_PRODUCT not in resp.text:
+                # Expired token; a missing API product is not solved by a new token
                 refreshed = True
                 self._get_access_token(force=True)
                 continue

@@ -24,6 +24,8 @@ from .m365_tenant import M365GraphError
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 INITIAL_DOMAIN = '.onmicrosoft.com'
 DOMAIN_RE = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.onmicrosoft\.com$')
+CUSTOM_DOMAIN_RE = re.compile(
+    r'^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$')
 CULTURE_RE = re.compile(r'^[a-z]{2}-[a-z]{2}$', re.I)
 LANGUAGE_RE = re.compile(r'^[a-z]{2}$', re.I)
 VERIFIED_ADDRESS = ('Verified', 'VerifiedShippable')
@@ -74,6 +76,18 @@ class M365Tenant(models.Model):
         string="Organization Registration Number",
         help="Required by Microsoft in some countries, e.g. India, Brazil or Poland.")
     enable_gdap = fields.Boolean(string="Create GDAP Relationship", default=True)
+    custom_domains = fields.Char(
+        string="Custom Domains",
+        help="Domains of the customer (e.g. contoso.com; contoso.in) added to the tenant and "
+             "verified once it is connected. The first one is the domain of the users.")
+    custom_domain_default = fields.Boolean(
+        string="Make the Custom Domain the Default",
+        help="Once verified, the first custom domain becomes the default domain of the "
+             "tenant.")
+    auto_initial_domain = fields.Boolean(
+        string="Pick a Free Initial Domain",
+        help="When the .onmicrosoft.com name is already used, Check tries the same name "
+             "followed by 1 to 9 and keeps the first free one.")
 
     # Creation (empty for existing tenants)
     provision_state = fields.Selection([
@@ -202,6 +216,9 @@ class M365Tenant(models.Model):
             errors.append(_("Domain \"%s\" is not valid: use letters, digits and hyphens "
                             "followed by .onmicrosoft.com, e.g. contoso.onmicrosoft.com.",
                             self.domain))
+        for name in self._custom_domain_names():
+            if not CUSTOM_DOMAIN_RE.match(name) or name.endswith(INITIAL_DOMAIN):
+                errors.append(_("Custom domain \"%s\" is not valid, e.g. contoso.com.", name))
         if self.contact_email and not email_normalize(self.contact_email):
             errors.append(_("\"%s\" is not a valid email address.", self.contact_email))
         if self.culture and not CULTURE_RE.match(self.culture):
@@ -230,11 +247,15 @@ class M365Tenant(models.Model):
         self.ensure_one()
         account = self.partner_account_id
         errors = []
-        # 200: the domain exists, 404: it is available
-        status, _data = account._pc_request('HEAD', '/v1/domains/%s' % self.domain,
-                                            expect=(404,))
-        if status != 404:
-            errors.append(_("Domain %s is already used in Microsoft 365.", self.domain))
+        if not self._domain_available(self.domain):
+            free = self._free_initial_domain() if self.auto_initial_domain else False
+            if free:
+                old = self.domain
+                self.domain = free
+                self.message_post(body=_("%(old)s is already used in Microsoft 365: the "
+                                         "initial domain is now %(new)s.", old=old, new=free))
+            else:
+                errors.append(_("Domain %s is already used in Microsoft 365.", self.domain))
         if self.address_confirmed:
             return errors
         _status, result = account._pc_request('POST', '/v1/validations/address',
@@ -253,6 +274,35 @@ class M365Tenant(models.Model):
             errors.append(message + _(" Correct the address, or tick Address Confirmed to "
                                       "use it as entered."))
         return errors
+
+    def _domain_available(self, domain):
+        """The .onmicrosoft.com domain is free in Microsoft 365 (200: used, 404: free)."""
+        self.ensure_one()
+        status, _data = self.partner_account_id._pc_request(
+            'HEAD', '/v1/domains/%s' % domain, expect=(404,))
+        return status == 404
+
+    def _free_initial_domain(self):
+        """First free name among <name>1 to <name>9, not used by another Odoo tenant."""
+        self.ensure_one()
+        prefix = re.sub(r'\d+$', '', self.domain.split('.')[0]) or self.domain.split('.')[0]
+        Tenant = self.sudo().with_context(active_test=False)
+        for number in range(1, 10):
+            candidate = '%s%s%s' % (prefix[:63 - len(str(number))], number, INITIAL_DOMAIN)
+            if Tenant.search_count([('domain', '=ilike', candidate), ('id', '!=', self.id)]):
+                continue
+            if self._domain_available(candidate):
+                return candidate
+        return False
+
+    @staticmethod
+    def _split_domains(text):
+        """Custom domain names of a text (separated by ; , or spaces), lower case."""
+        return [d for d in re.split(r'[;,\s]+', (text or '').lower()) if d]
+
+    def _custom_domain_names(self):
+        self.ensure_one()
+        return self._split_domains(self.custom_domains)
 
     def action_check(self):
         """Check the data, the domain availability and the address of new tenants."""

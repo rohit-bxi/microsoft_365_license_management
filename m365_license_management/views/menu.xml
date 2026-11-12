@@ -42,6 +42,8 @@
               parent="menu_m365_tenants_root" action="action_m365_config_profile" sequence="5"/>
     <menuitem id="menu_m365_domains" name="Domains" parent="menu_m365_tenants_root"
               action="action_m365_tenant_domain" sequence="6"/>
+    <menuitem id="menu_m365_pending_users" name="Users to Create"
+              parent="menu_m365_tenants_root" action="action_m365_pending_user" sequence="7"/>
     <menuitem id="menu_m365_ingram_root" name="Ingram Micro" parent="menu_m365_config"
               sequence="2"/>
     <menuitem id="menu_m365_ingram_accounts" name="Ingram Micro Accounts"

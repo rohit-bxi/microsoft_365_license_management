@@ -37,6 +37,9 @@ class M365AuditLog(models.Model):
         ('gdap', 'GDAP'),
         ('pc_order', 'Subscription Order'),
         ('verify_license', 'License Verification'),
+        ('partner_signin', 'Partner User Sign-in'),
+        ('agreement', 'Customer Agreement'),
+        ('auto_provision', 'Automatic Provisioning'),
     ], string="Operation", readonly=True, required=True)
     status = fields.Selection([
         ('success', 'Success'),

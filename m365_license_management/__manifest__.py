@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.7.0',
+    'version': '19.0.1.8.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment, tenant setup, MFA operations and Ingram Micro '
@@ -24,6 +24,10 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
   Temporary Access Pass
 * End-to-end provisioning: customer file, tenant, GDAP, Partner Center subscriptions,
   users, licenses, verification (licenseDetails) and provisioning report
+* Bulk provisioning without manual steps: partner user sign-in (App+User), Microsoft
+  Customer Agreement and shared app installed through Partner Center, GDAP access of a
+  partner security group, custom domains added and verified automatically, users of the
+  customer file created when their tenant is ready, automatic run of every step
 * Licenses bought from Ingram Micro (catalog, prices, orders with approval, webhook,
   delivery check in the tenant)
 * Product catalogue master (SKU part number -> friendly product name)
@@ -55,6 +59,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'data/ir_sequence_data.xml',
         'data/m365_product_data.xml',
         'data/ir_cron_data.xml',
+        'data/m365_mail_template_data.xml',
         'data/m365_portal_data.xml',
         'views/m365_tenant_views.xml',
         'views/m365_tenant_import_views.xml',
@@ -71,6 +76,7 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
         'views/m365_user_create_views.xml',
         'views/m365_ingram_views.xml',
         'views/m365_provisioning_views.xml',
+        'views/m365_bulk_provisioning_views.xml',
         'views/customer_customer_views.xml',
         'views/customer_portal_wizard_views.xml',
         'views/m365_user_customer_mapping_views.xml',

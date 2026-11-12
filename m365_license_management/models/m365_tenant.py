@@ -287,11 +287,15 @@ class M365Tenant(models.Model):
             product = products.get(part)
             if not product:
                 product = Product.create({
-                    'name': part.replace('_', ' ').title(),
+                    'name': self._auto_product_name(part, item['skuId']),
                     'sku_part_number': part,
                     'auto_created': True,
                 })
                 products[part] = product
+            elif product.auto_created and product.name == self._generic_product_name(part):
+                name = self._auto_product_name(part, item['skuId'])
+                if name != product.name:
+                    product.name = name
             prepaid = item.get('prepaidUnits') or {}
             status = item.get('capabilityStatus')
             vals = {
@@ -322,6 +326,15 @@ class M365Tenant(models.Model):
         self.write({'last_sync_date': now, 'state': 'connected', 'last_error': False})
         self._check_low_availability()
         return len(items)
+
+    @staticmethod
+    def _generic_product_name(part):
+        return part.replace('_', ' ').title()
+
+    def _auto_product_name(self, part, graph_sku_id):
+        """Name of a product created by the synchronisation (extended with the Partner
+        Center offers)."""
+        return self._generic_product_name(part)
 
     def _sync_users_from_graph(self):
         """Pull GET /users with assigned licenses."""

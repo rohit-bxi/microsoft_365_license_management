@@ -143,4 +143,49 @@
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>
+
+    <!-- Bulk provisioning (19.0.1.8.0) -->
+    <record id="ir_cron_m365_auto_provision" model="ir.cron">
+        <field name="name">Microsoft 365: Run Automatic Provisioning</field>
+        <field name="model_id" ref="model_m365_tenant"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_auto_provision()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_auto_domains" model="ir.cron">
+        <field name="name">Microsoft 365: Add and Verify Custom Domains</field>
+        <field name="model_id" ref="model_m365_tenant_domain"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_auto_domains()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_create_pending_users" model="ir.cron">
+        <field name="name">Microsoft 365: Create Waiting Users</field>
+        <field name="model_id" ref="model_m365_tenant_pending_user"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_create_users()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_m365_partner_signin" model="ir.cron">
+        <field name="name">Microsoft 365: Keep the Partner User Signed In</field>
+        <field name="model_id" ref="model_m365_partner_account"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_partner_signin()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>

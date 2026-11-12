@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import base64
 import re
 
 import openpyxl
@@ -7,6 +8,8 @@ from openpyxl.styles import Font, PatternFill
 
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError
+
+from .m365_tenant_creation import INITIAL_DOMAIN
 
 GUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 DOMAIN_RE = re.compile(r'^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$',
@@ -89,6 +92,12 @@ NEW_COLUMNS = [
     ('language', 'text', False),
     ('organization_registration_number', 'text', False),
     ('requested_subscriptions', 'text', False),
+    ('custom_domains', 'domains', False),
+    ('mca_first_name', 'text', False),
+    ('mca_last_name', 'text', False),
+    ('mca_email', 'text', False),
+    ('mca_phone', 'text', False),
+    ('mca_date', 'date', False),
 ]
 NEW_HEADERS = {
     'name': 'CompanyName', 'domain': 'Domain', 'contact_first_name': 'FirstName',
@@ -98,11 +107,48 @@ NEW_HEADERS = {
     'requested_subscriptions': 'Subscriptions',
     'culture': 'Culture', 'language': 'Language',
     'organization_registration_number': 'OrganizationRegistrationNumber',
+    'custom_domains': 'CustomDomains',
+    'mca_first_name': 'AgreementFirstName', 'mca_last_name': 'AgreementLastName',
+    'mca_email': 'AgreementEmail', 'mca_phone': 'AgreementPhone', 'mca_date': 'AgreementDate',
 }
+# Other accepted headers of the new tenant columns (normalised)
+NEW_ALIASES = {'initialdomain': 'domain', 'initial domain': 'domain'}
 NEW_TEMPLATE_NAME = 'm365_customers_template.xlsx'
-NEW_SAMPLE = ('Contoso Ltd', 'contosoltd', 'Adele', 'Vance', 'adele.vance@contoso.com',
-              '+91 80 4000 1000', '1 MG Road', '', 'Bengaluru', 'KA', '560001', 'IN',
-              'en-IN', 'en', 'U72900KA2020PTC000000', 'Microsoft 365 Business Basic = 10')
+NEW_SAMPLE = {
+    'name': 'Contoso Ltd', 'domain': 'contosoltd', 'contact_first_name': 'Adele',
+    'contact_last_name': 'Vance', 'contact_email': 'adele.vance@contoso.com',
+    'contact_phone': '+91 80 4000 1000', 'address_line1': '1 MG Road', 'address_line2': '',
+    'city': 'Bengaluru', 'address_state': 'KA', 'postal_code': '560001', 'country_id': 'IN',
+    'culture': 'en-IN', 'language': 'en',
+    'organization_registration_number': 'U72900KA2020PTC000000',
+    'requested_subscriptions': 'Microsoft 365 Business Basic (no Teams) = 10',
+    'custom_domains': 'contoso-example.com', 'mca_first_name': 'Adele',
+    'mca_last_name': 'Vance', 'mca_email': 'adele.vance@contoso.com', 'mca_phone': '',
+    'mca_date': '',
+}
+# Users sheet of the customer file: (key, header, required, other accepted headers)
+USER_SHEET = 'Users'
+USER_COLUMNS = [
+    ('company', 'CompanyName', True, ('company', 'company name', 'tenant', 'tenant name',
+                                      'customer', 'domain')),
+    ('user_name', 'UserName', True, ('user name', 'upn', 'user principal name', 'alias',
+                                     'email')),
+    ('display_name', 'DisplayName', False, ('display name', 'name', 'full name')),
+    ('given_name', 'FirstName', False, ('first name', 'given name')),
+    ('surname', 'LastName', False, ('last name', 'surname')),
+    ('usage_location', 'UsageLocation', False, ('usage location', 'country')),
+    ('licenses', 'Licenses', False, ('license', 'licence', 'licences', 'sku', 'skus')),
+    ('department', 'Department', False, ()),
+    ('job_title', 'JobTitle', False, ('job title', 'title')),
+]
+USER_SAMPLES = [
+    ('Contoso Ltd', 'adele.vance', 'Adele Vance', 'Adele', 'Vance', 'IN',
+     'Microsoft 365 Business Basic (no Teams)', 'Finance', 'Accountant'),
+    ('Contoso Ltd', 'alex.wilber', 'Alex Wilber', 'Alex', 'Wilber', 'IN', 'default', 'Sales',
+     ''),
+]
+UPN_RE = re.compile(r'^[A-Za-z0-9._%+\-\']{1,64}@[A-Za-z0-9.\-]+\.[A-Za-z]{2,63}$')
+ALIAS_RE = re.compile(r'^[A-Za-z0-9._\-\']{1,64}$')
 
 
 class M365TenantImportWizard(models.TransientModel):
@@ -123,10 +169,40 @@ class M365TenantImportWizard(models.TransientModel):
     file = fields.Binary(string="File", attachment=False,
                          help="CSV or Excel (.xlsx) file with one tenant per row.")
     filename = fields.Char()
+    users_file = fields.Binary(
+        string="Users File", attachment=False,
+        help="Optional CSV or Excel file of the users to create in the new tenants (same "
+             "columns as the Users sheet of the template). An Excel customer file can "
+             "contain them in a sheet named Users instead.")
+    users_filename = fields.Char()
     template_file = fields.Binary(attachment=False)
     line_ids = fields.One2many('m365.tenant.import.line', 'wizard_id', string="Rows")
     line_count = fields.Integer(compute='_compute_counts')
     error_count = fields.Integer(compute='_compute_counts')
+    user_count = fields.Integer(string="Users", readonly=True)
+    # Options of the new tenants
+    auto_provision = fields.Boolean(
+        string="Run Automatically",
+        help="Odoo runs every provisioning step of the new tenants by itself (scheduled "
+             "action), from the creation to the license verification, and stops only "
+             "where a person is needed.")
+    approve_orders = fields.Boolean(
+        string="Approve the Subscription Orders",
+        help="The Subscriptions of the file are ordered in Partner Center without another "
+             "approval: you approve them by importing the file. Recorded in the audit log.")
+    mca_confirmed = fields.Boolean(
+        string="The Customers Accepted the Microsoft Customer Agreement",
+        help="You confirm that each customer of the file accepted the Microsoft Customer "
+             "Agreement (Agreement columns, else the contact). Odoo attests it in Partner "
+             "Center with the signed-in partner user.")
+    make_custom_default = fields.Boolean(
+        string="Make the Custom Domain the Default", default=True,
+        help="Once verified, the first custom domain of each customer becomes the default "
+             "domain of its tenant.")
+    pick_free_domain = fields.Boolean(
+        string="Pick a Free Initial Domain", default=True,
+        help="When a .onmicrosoft.com name is already used, Check takes the same name "
+             "followed by 1 to 9.")
 
     @api.depends('line_ids.status')
     def _compute_counts(self):
@@ -134,7 +210,7 @@ class M365TenantImportWizard(models.TransientModel):
             wiz.line_count = len(wiz.line_ids)
             wiz.error_count = len(wiz.line_ids.filtered(lambda l: l.status == 'error'))
 
-    @api.onchange('file', 'tenant_type', 'partner_account_id')
+    @api.onchange('file', 'users_file', 'tenant_type', 'partner_account_id')
     def _onchange_file(self):
         # A new file must be validated again before tenants can be created
         self.line_ids = [Command.clear()]
@@ -160,6 +236,8 @@ class M365TenantImportWizard(models.TransientModel):
             lookup[fname] = fname
             lookup[self._normalise(Tenant._fields[fname].string)] = fname
             lookup[self._normalise(self._column_title(fname))] = fname
+        if self.tenant_type == 'new':
+            lookup.update(NEW_ALIASES)
         mapping, unknown = {}, []
         for index, title in enumerate(header):
             if not title:
@@ -243,6 +321,18 @@ class M365TenantImportWizard(models.TransientModel):
         if kind == 'initial_domain':
             # Validated with the other data of the new tenant (_check_values)
             return self.env['m365.tenant']._normalise_domain(text)
+        if kind == 'domains':
+            names = self.env['m365.tenant']._split_domains(text)
+            bad = [n for n in names if not DOMAIN_RE.match(n) or n.endswith(INITIAL_DOMAIN)]
+            if bad:
+                raise ValueError(_("\"%s\" is not a valid custom domain, e.g. contoso.com.",
+                                   ", ".join(bad)))
+            return '; '.join(dict.fromkeys(names))
+        if kind == 'date':
+            try:
+                return fields.Date.to_date(text[:10])
+            except ValueError:
+                raise ValueError(_("\"%s\" is not a date (YYYY-MM-DD).", text)) from None
         return text
 
     def _parse(self):
@@ -272,7 +362,13 @@ class M365TenantImportWizard(models.TransientModel):
                 lookups['country'][country.name.lower()] = country
             defaults.update(tenant_type='new', partner_account_id=account.id,
                             culture=account.default_culture,
-                            language=account.default_language, enable_gdap=account.enable_gdap)
+                            language=account.default_language, enable_gdap=account.enable_gdap,
+                            auto_initial_domain=self.pick_free_domain,
+                            custom_domain_default=self.make_custom_default,
+                            mca_customer_confirmed=self.mca_confirmed,
+                            auto_provision=self.auto_provision,
+                            prov_approve_orders=self.approve_orders,
+                            prov_user_id=self.env.uid)
         cache = {}
 
         def shared_account():
@@ -286,6 +382,8 @@ class M365TenantImportWizard(models.TransientModel):
         existing = {fname: {(value or '').lower() for value in tenants.mapped(fname)}
                     for fname in UNIQUE_FIELDS}
         seen = {fname: {} for fname in UNIQUE_FIELDS}
+        customs = self._custom_domains_taken(tenants) if self.tenant_type == 'new' else {}
+        seen_customs = {}
         result = []
         for sn, values in enumerate(rows[1:], start=1):
             raw, vals, errors, invalid = {}, dict(defaults), [], set()
@@ -314,6 +412,8 @@ class M365TenantImportWizard(models.TransientModel):
                         Tenant._fields['client_id'].string not in invalid:
                     errors.append(_("%s is required.", Tenant._fields['client_id'].string))
             if self.tenant_type == 'new':
+                errors += self._split_initial_domain(vals, existing, seen, customs,
+                                                     seen_customs, sn)
                 # The checks of the Check button, without repeating the errors above
                 skip = set(errors) | {_("%s is required.", label) for label in invalid}
                 errors += [error for error in Tenant.new(vals)._check_values()
@@ -330,8 +430,166 @@ class M365TenantImportWizard(models.TransientModel):
                     errors.append(_("Duplicate %(field)s, same as SN. %(sn)s.",
                                     field=label, sn=seen[fname][key]))
                 seen[fname].setdefault(key, sn)
-            result.append({'sn': sn, 'raw': raw, 'vals': vals, 'errors': errors})
+            result.append({'sn': sn, 'raw': raw, 'vals': vals, 'errors': errors,
+                           'users': []})
+        if self.tenant_type == 'new':
+            self._parse_users(result)
         return result
+
+    # ------------------------------------------------------------------
+    # Domains of the new tenants
+    # ------------------------------------------------------------------
+    def _custom_domains_taken(self, tenants):
+        """Custom domains already known in Odoo: {domain: tenant name}."""
+        taken = {}
+        for tenant in tenants:
+            for name in tenant._custom_domain_names():
+                taken.setdefault(name, tenant.name)
+        domains = self.env['m365.tenant.domain'].sudo().search([('is_initial', '=', False)])
+        for domain in domains:
+            taken.setdefault(domain.name, domain.tenant_id.name)
+        return taken
+
+    def _split_initial_domain(self, vals, existing, seen, customs, seen_customs, sn):
+        """A custom domain in the Domain column (contoso.com) becomes the first custom
+        domain; the initial domain is derived from it (contoso.onmicrosoft.com), with a
+        number when the name is taken in Odoo or in the file.
+
+        :return: errors of the custom domains
+        """
+        domain = vals.get('domain') or ''
+        names = self.env['m365.tenant']._split_domains(vals.get('custom_domains'))
+        if domain and '.' in domain and not domain.endswith(INITIAL_DOMAIN):
+            if not DOMAIN_RE.match(domain):
+                return []  # reported by the checks of the new tenant
+            names = [domain] + [n for n in names if n != domain]
+            label = re.sub(r'[^a-z0-9]', '', domain.split('.')[0])[:50] or 'tenant'
+            taken = existing['domain'] | set(seen['domain'])
+            candidate, number = label + INITIAL_DOMAIN, 1
+            while candidate in taken:
+                candidate, number = '%s%s%s' % (label, number, INITIAL_DOMAIN), number + 1
+            vals['domain'] = candidate
+            vals['auto_initial_domain'] = True
+        if names:
+            vals['custom_domains'] = '; '.join(names)
+        errors = []
+        for name in names:
+            if name in customs:
+                errors.append(_("Custom domain %(domain)s is already used by tenant "
+                                "%(tenant)s.", domain=name, tenant=customs[name]))
+            elif name in seen_customs:
+                errors.append(_("Custom domain %(domain)s is also in SN. %(sn)s.",
+                                domain=name, sn=seen_customs[name]))
+            seen_customs.setdefault(name, sn)
+        return errors
+
+    # ------------------------------------------------------------------
+    # Users of the new tenants
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _header_key(title):
+        return re.sub(r'[\s_]+', '', str(title or '')).lower()
+
+    def _read_user_rows(self):
+        """Rows of the Users sheet of the customer file, else of the users file."""
+        self.ensure_one()
+        rows = None
+        if self.file and (self.filename or '').lower().endswith('.xlsx'):
+            rows = self._read_xlsx_sheet(base64.b64decode(self.file), USER_SHEET)
+        if rows is None and self.users_file:
+            rows = self._rows_of(base64.b64decode(self.users_file), self.users_filename)
+        if rows is None:
+            return []
+        return [values for values in ([self._cell_text(v) for v in row] for row in rows)
+                if any(values)]
+
+    def _parse_users(self, result):
+        """Attach the users of the file to their tenant rows (``row['users']``). Their
+        errors are added to the row of their tenant, or to a last row *Users*."""
+        rows = self._read_user_rows()
+        if len(rows) < 2:
+            return
+        keys = {}
+        for key, title, _required, aliases in USER_COLUMNS:
+            for name in (key, title) + tuple(aliases):
+                keys[self._header_key(name)] = key
+        mapping, unknown = {}, []
+        for index, title in enumerate(rows[0]):
+            if not title:
+                continue
+            key = keys.get(self._header_key(title))
+            if not key:
+                unknown.append(title)
+            elif key not in mapping.values():
+                mapping[index] = key
+        if unknown:
+            raise UserError(_("Unknown column(s) in the users: %(unknown)s.\nAllowed "
+                              "columns: %(allowed)s.", unknown=", ".join(unknown),
+                              allowed=", ".join(t for _k, t, _r, _a in USER_COLUMNS)))
+        missing = [title for key, title, required, _a in USER_COLUMNS
+                   if required and key not in mapping.values()]
+        if missing:
+            raise UserError(_("Missing required column(s) in the users: %s.",
+                              ", ".join(missing)))
+        tenants = {}
+        for row in result:
+            vals = row['vals']
+            names = [vals.get('name'), vals.get('domain'), row['raw'].get('domain')]
+            names += self.env['m365.tenant']._split_domains(vals.get('custom_domains'))
+            for name in filter(None, names):
+                tenants.setdefault(name.strip().lower(), row)
+        countries = {c.code.lower() for c in self.env['res.country'].search([])}
+        orphans, seen = [], {}
+        for sn, values in enumerate(rows[1:], start=1):
+            cells = {key: values[index] if index < len(values) else ''
+                     for index, key in mapping.items()}
+            errors = []
+            row = tenants.get((cells.get('company') or '').lower())
+            if not row:
+                orphans.append(_("Users SN. %(sn)s: customer \"%(name)s\" is not in the "
+                                 "file.", sn=sn, name=cells.get('company') or ''))
+                continue
+            vals = row['vals']
+            user_name = (cells.get('user_name') or '').strip()
+            if '@' in user_name:
+                domain = user_name.rsplit('@', 1)[1].lower()
+                allowed = [vals.get('domain')] + self.env['m365.tenant']._split_domains(
+                    vals.get('custom_domains'))
+                if not UPN_RE.match(user_name):
+                    errors.append(_("%s is not a valid user principal name.", user_name))
+                elif domain not in allowed:
+                    errors.append(_("The domain of %(upn)s is not a domain of the customer "
+                                    "(%(domains)s).", upn=user_name,
+                                    domains=", ".join(filter(None, allowed))))
+            elif not ALIAS_RE.match(user_name):
+                errors.append(_("\"%s\" is not a valid user name.", user_name))
+            display = (cells.get('display_name') or ' '.join(filter(None, (
+                cells.get('given_name'), cells.get('surname'))))).strip()
+            if not display:
+                errors.append(_("DisplayName (or FirstName and LastName) is required."))
+            usage = (cells.get('usage_location') or '').strip().upper()
+            if usage and usage.lower() not in countries:
+                errors.append(_("%s is not a valid ISO country code.", usage))
+            key = (row['sn'], user_name.lower())
+            if key in seen:
+                errors.append(_("Duplicate user, same as users SN. %s.", seen[key]))
+            seen.setdefault(key, sn)
+            if errors:
+                row['errors'].append(_("Users SN. %(sn)s (%(user)s): %(errors)s", sn=sn,
+                                       user=user_name or '-', errors=" ".join(errors)))
+                continue
+            row['users'].append({
+                'sequence': sn, 'user_name': user_name, 'name': display,
+                'given_name': cells.get('given_name') or False,
+                'surname': cells.get('surname') or False,
+                'usage_location': usage or False,
+                'licenses': cells.get('licenses') or False,
+                'department': cells.get('department') or False,
+                'job_title': cells.get('job_title') or False,
+            })
+        if orphans:
+            result.append({'sn': 0, 'raw': {'name': _("Users")}, 'vals': None,
+                           'errors': orphans, 'users': []})
 
     # ------------------------------------------------------------------
     # Buttons
@@ -359,7 +617,9 @@ class M365TenantImportWizard(models.TransientModel):
             'country': row['raw'].get('country_id'),
             'status': 'error' if row['errors'] else 'valid',
             'message': "\n".join(row['errors']) or False,
+            'user_count': len(row['users']),
         }) for row in parsed]
+        self.user_count = sum(len(row['users']) for row in parsed)
         return self._reopen()
 
     def _link_customers(self, tenants):
@@ -400,19 +660,29 @@ class M365TenantImportWizard(models.TransientModel):
                                          for row in invalid)))
         if self.error_count:
             raise UserError(_("Validate the file again before creating the tenants."))
-        tenants = self.env['m365.tenant'].create([row['vals'] for row in parsed])
+        rows = [row for row in parsed if row['vals'] is not None]
+        tenants = self.env['m365.tenant'].create([row['vals'] for row in rows])
         if self.tenant_type == 'new':
             self._link_customers(tenants)
+            self.env['m365.tenant.pending.user'].create([
+                dict(user, tenant_id=tenant.id, requested_by=self.env.uid)
+                for row, tenant in zip(rows, tenants) for user in row['users']])
         for tenant in tenants:
             tenant._message_log(body=_("Tenant created by bulk import from %s.",
                                        self.filename))
+        if self.tenant_type == 'new':
+            self._log_import_options(tenants)
         # Do not keep client secrets in the wizard any longer than needed
-        self.file = False
+        self.write({'file': False, 'users_file': False})
         action = self.env['ir.actions.act_window']._for_xml_id(
             'm365_license_management.action_m365_tenant')
         action.update(name=_("Imported Tenants"), domain=[('id', 'in', tenants.ids)],
                       target='main')
-        if self.tenant_type == 'new':
+        if self.tenant_type == 'new' and self.auto_provision:
+            message = _("%(count)s tenant(s) and %(users)s user(s) added. Odoo provisions "
+                        "them automatically: follow them in Provisioning.",
+                        count=len(tenants), users=sum(len(row['users']) for row in rows))
+        elif self.tenant_type == 'new':
             message = _("%s tenant(s) added. Select them and use Check, then Create in "
                         "Microsoft 365.", len(tenants))
         else:
@@ -437,8 +707,28 @@ class M365TenantImportWizard(models.TransientModel):
             'url': _("https:// address"),
         }
 
+    def _log_import_options(self, tenants):
+        """Audit log of what the administrator approved by importing the file."""
+        options = []
+        if self.mca_confirmed:
+            options.append(_("the customers accepted the Microsoft Customer Agreement"))
+        if self.approve_orders:
+            options.append(_("their subscription orders are approved"))
+        if self.auto_provision:
+            options.append(_("they are provisioned automatically"))
+        for tenant in tenants:
+            tenant._log('provision_tenant', 'info', _(
+                "Imported from %(file)s by %(user)s%(options)s.", file=self.filename,
+                user=self.env.user.name,
+                options=(": " + "; ".join(options)) if options else ''))
+        if self.auto_provision:
+            cron = self.env.ref('m365_license_management.ir_cron_m365_auto_provision',
+                                raise_if_not_found=False)
+            if cron:
+                cron.sudo()._trigger()
+
     def _new_tenant_template(self):
-        """Customers.csv columns, with one example customer."""
+        """Customers.csv columns, with one example customer, and the Users sheet."""
         Tenant = self.env['m365.tenant']
         book = openpyxl.Workbook()
         sheet = book.active
@@ -453,8 +743,29 @@ class M365TenantImportWizard(models.TransientModel):
             hint = Tenant._fields[fname].help or Tenant._fields[fname].string
             cell.comment = Comment(_("Required. %s", hint) if required else hint, 'Odoo')
             sheet.column_dimensions[cell.column_letter].width = max(14, len(title) + 4)
-        sheet.append(list(NEW_SAMPLE))
+        sheet.append([NEW_SAMPLE.get(fname, '') for fname, _kind, _required in NEW_COLUMNS])
         sheet.freeze_panes = 'A2'
+        users = book.create_sheet(USER_SHEET)
+        hints = {
+            'company': _("CompanyName (or a domain) of the customer in the first sheet."),
+            'user_name': _("Part before the @ (the first custom domain, else the "
+                           ".onmicrosoft.com domain, is added), or the full user name."),
+            'licenses': _("Licenses (separated by ;): name or SKU of the license, name of "
+                          "the Partner Center offer, or \"default\" (default offer of the "
+                          "Partner Center account)."),
+            'usage_location': _("ISO country code; blank: the country of the customer."),
+        }
+        for col, (key, title, required, _aliases) in enumerate(USER_COLUMNS, start=1):
+            cell = users.cell(row=1, column=col, value=title)
+            cell.font = Font(bold=True)
+            if required:
+                cell.fill = required_fill
+            if key in hints:
+                cell.comment = Comment(hints[key], 'Odoo')
+            users.column_dimensions[cell.column_letter].width = max(14, len(title) + 4)
+        for sample in USER_SAMPLES:
+            users.append(list(sample))
+        users.freeze_panes = 'A2'
         return book
 
     def action_download_template(self):
@@ -505,3 +816,4 @@ class M365TenantImportLine(models.TransientModel):
     country = fields.Char(string="Country")
     status = fields.Selection([('valid', 'Valid'), ('error', 'Error')], string="Status")
     message = fields.Text(string="Errors")
+    user_count = fields.Integer(string="Users")
