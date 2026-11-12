@@ -302,6 +302,39 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
         self.assertIn('not assigned', request.verification_message)
         self.assertEqual(self.tenant.prov_verification, 'failed')
 
+    def test_verification_superseded_and_delays(self):
+        Request = self.env['m365.license.request']
+        old = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                              'sku_id': self.sku.id, 'state': 'failed',
+                              'error_message': 'HTTP 400 - no license'})
+        assign = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                                 'sku_id': self.sku.id, 'state': 'done',
+                                 'executed_date': fields.Datetime.now() - timedelta(hours=2)})
+        remove = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                                 'sku_id': self.sku.id, 'state': 'done', 'request_type': 'remove',
+                                 'executed_date': fields.Datetime.now() - timedelta(minutes=5)})
+        user_path = '/users/%s' % USER_ID
+        details = '/users/%s/licenseDetails' % USER_ID
+        graph = FakeGraph({user_path: {'id': USER_ID, 'accountEnabled': True},
+                           details: [{'skuId': GUID_A, 'servicePlans': []}]})
+        with patch(GRAPH_PATH, side_effect=graph):
+            (assign | remove)._verify()
+        # The assignment was replaced by the removal: not judged
+        self.assertEqual(assign.verification_state, 'superseded')
+        self.assertIn(remove.name, assign.verification_message)
+        # Removed 5 minutes ago, still there: Microsoft may not have applied it yet
+        self.assertEqual(remove.verification_state, 'pending')
+        self.assertEqual(self.tenant.prov_licenses, 'done')  # the old failure is replaced
+        # Still there because a group gives it: reported at once
+        graph.routes[user_path]['licenseAssignmentStates'] = [
+            {'skuId': GUID_A, 'assignedByGroup': 'group-1', 'state': 'Active', 'error': 'None'}]
+        with patch(GRAPH_PATH, side_effect=graph):
+            remove._verify()
+        self.assertEqual(remove.verification_state, 'mismatch')
+        self.assertIn('through group(s) group-1', remove.verification_message)
+        self.assertEqual(self.tenant.prov_verification, 'failed')
+        self.assertTrue(old.exists())
+
     def test_steps_and_next(self):
         """Steps in order: tenant, GDAP, agreement, connection, domains, subscriptions,
         users, licenses, verification; Next Step runs the first one Odoo can run."""

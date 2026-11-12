@@ -57,10 +57,12 @@ class M365TenantGraph(models.Model):
         self.ensure_one()
         return self._graph_request('GET', '/subscribedSkus', paginate=True)
 
-    def graph_get_user(self, graph_id):
+    def graph_get_user(self, graph_id, extra_fields=None):
+        """:param extra_fields: other properties to read, e.g. licenseAssignmentStates"""
         self.ensure_one()
+        select = USER_SELECT + (',' + ','.join(extra_fields) if extra_fields else '')
         return self._graph_request('GET', '/users/%s' % self._graph_key(graph_id),
-                                   params={'$select': USER_SELECT})
+                                   params={'$select': select})
 
     def graph_get_license_details(self, graph_id):
         """Licenses of a user with the state of each service plan."""
