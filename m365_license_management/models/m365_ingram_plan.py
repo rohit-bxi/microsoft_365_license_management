@@ -5,9 +5,11 @@ Each plan is mapped to its catalogue product (Graph ``skuPartNumber``), so that 
 sees when the bought licenses arrive in the tenant. The mapping is suggested by name on
 the catalog synchronisation and confirmed by an administrator.
 """
+import re
+
 from odoo import _, api, fields, models
 
-from .m365_ingram_account import M365IngramError
+from .m365_ingram_account import M365IngramError, term_key
 
 PRICE_BATCH = 50  # products per price and availability call
 
@@ -39,6 +41,7 @@ class M365IngramPlan(models.Model):
     product_suggested = fields.Boolean(
         string="Suggested Product", readonly=True,
         help="Matched by name on the catalog synchronisation: check it.")
+    term_ids = fields.One2many('m365.ingram.plan.term', 'plan_id', string="Subscription Periods")
     active = fields.Boolean(default=True)
     last_refresh = fields.Datetime(string="Last Refresh", readonly=True)
 
@@ -62,6 +65,33 @@ class M365IngramPlan(models.Model):
 
     def _check_admin(self):
         self.env['m365.tenant']._check_admin()
+
+    def _set_terms(self, periods):
+        """Subscription periods of the catalog (``subscriptionPeriodSummary``)."""
+        self.ensure_one()
+        Term = self.env['m365.ingram.plan.term'].sudo()
+        existing = {t.key: t for t in self.sudo().term_ids}
+        seen = set()
+        for sequence, period in enumerate(periods or []):
+            if not isinstance(period, dict):
+                continue
+            number, unit = period.get('subscriptionPeriod'), period.get('subscriptionPeriodUnit')
+            key = term_key(number, unit)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            if key not in existing:
+                existing[key] = Term.create({
+                    'plan_id': self.id, 'key': key, 'sequence': sequence,
+                    'code': ("%s %s" % (number, unit or '')).strip()})
+        Term.browse([t.id for k, t in existing.items() if k not in seen]).unlink()
+
+    def _default_term(self):
+        """Period of a new order line: the default period of the account, else the only
+        (or first) one of the plan."""
+        self.ensure_one()
+        terms = self.term_ids
+        return terms.filtered(lambda t: t.key == self.account_id.default_term)[:1] or terms[:1]
 
     # ------------------------------------------------------------------
     # Details and prices
@@ -156,3 +186,39 @@ class M365IngramPlan(models.Model):
         self._refresh_details()
         self._refresh_prices()
         return self.env['m365.tenant']._notify(_("Plan details and prices refreshed."))
+
+
+class M365IngramPlanTerm(models.Model):
+    """Subscription period a plan can be bought for (1 month, 1 year, 3 years)."""
+    _name = 'm365.ingram.plan.term'
+    _description = 'Ingram Micro Plan Subscription Period'
+    _order = 'plan_id, sequence, id'
+
+    plan_id = fields.Many2one('m365.ingram.plan', string="Plan", required=True,
+                              ondelete='cascade', index=True)
+    sequence = fields.Integer(default=10)
+    key = fields.Char(string="Period", required=True,
+                      help="ISO duration: P1M one month, P1Y one year, P3Y three years.")
+    name = fields.Char(compute='_compute_name', store=True)
+    months = fields.Integer(compute='_compute_name', store=True)
+    code = fields.Char(
+        string="Value Sent", required=True,
+        help="Value of the vendor field Subscription Period sent to Ingram Micro, as read "
+             "from the catalog (e.g. 1 YEARS). Change it if Ingram Micro asks another "
+             "format.")
+
+    _plan_key_uniq = models.Constraint('unique(plan_id, key)',
+                                       'This period already exists for the plan.')
+
+    @api.depends('key')
+    def _compute_name(self):
+        for rec in self:
+            match = re.match(r'^P(\d+)([MY])$', rec.key or '')
+            if not match:
+                rec.name, rec.months = rec.key or '', 0
+                continue
+            number, unit = int(match.group(1)), match.group(2)
+            rec.months = number * (12 if unit == 'Y' else 1)
+            rec.name = ("%s %s" % (number, _("Year") if number == 1 else _("Years"))
+                        if unit == 'Y' else
+                        "%s %s" % (number, _("Month") if number == 1 else _("Months")))

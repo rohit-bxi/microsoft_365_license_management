@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.8.0',
+    'version': '19.0.1.9.0',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment, tenant setup, MFA operations and Ingram Micro '
@@ -28,6 +28,9 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
   Customer Agreement and shared app installed through Partner Center, GDAP access of a
   partner security group, custom domains added and verified automatically, users of the
   customer file created when their tenant is ready, automatic run of every step
+* Licenses bought through Ingram Micro in bulk: subscription periods, default plan,
+  plans found by part number or name, Ingram orders in the automatic provisioning and
+  in the customer file of existing tenants
 * Licenses bought from Ingram Micro (catalog, prices, orders with approval, webhook,
   delivery check in the tenant)
 * Product catalogue master (SKU part number -> friendly product name)

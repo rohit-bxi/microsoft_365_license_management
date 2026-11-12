@@ -98,6 +98,7 @@
                     <field name="prov_tenant"/>
                     <field name="prov_gdap"/>
                     <field name="prov_agreement"/>
+                    <field name="prov_relationship"/>
                     <field name="prov_connection"/>
                     <field name="prov_domains"/>
                     <field name="prov_subscriptions"/>
@@ -221,6 +222,9 @@
                        decoration-success="prov_agreement == 'done'"
                        decoration-danger="prov_agreement == 'failed'"
                        decoration-warning="prov_agreement in ('pending', 'action')"/>
+                <field name="prov_relationship" widget="badge" optional="show"
+                       decoration-success="prov_relationship == 'done'"
+                       decoration-warning="prov_relationship in ('pending', 'action')"/>
             </xpath>
             <xpath expr="//field[@name='prov_connection']" position="after">
                 <field name="prov_domains" widget="badge"
@@ -409,26 +413,26 @@
         <field name="inherit_id" ref="view_m365_tenant_import_wizard"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='filename']" position="after">
-                <field name="users_file" filename="users_filename"
-                       invisible="tenant_type != 'new'"/>
+                <field name="users_file" filename="users_filename"/>
                 <field name="users_filename" invisible="1"/>
             </xpath>
             <xpath expr="//form/group" position="after">
-                <group string="Options of the New Tenants" invisible="tenant_type != 'new'">
+                <group string="Options">
                     <group>
                         <field name="auto_provision"/>
                         <field name="approve_orders"/>
                         <field name="mca_confirmed"/>
+                        <field name="ingram_linked"/>
                     </group>
                     <group>
                         <field name="make_custom_default"/>
-                        <field name="pick_free_domain"/>
+                        <field name="pick_free_domain" invisible="tenant_type != 'new'"/>
                         <field name="user_count" invisible="not user_count"/>
                     </group>
                 </group>
             </xpath>
             <xpath expr="//field[@name='line_ids']/list/field[@name='country']" position="after">
-                <field name="user_count" column_invisible="parent.tenant_type != 'new'"/>
+                <field name="user_count"/>
             </xpath>
         </field>
     </record>
@@ -458,6 +462,77 @@
             </xpath>
             <xpath expr="//field[@name='catalog_item_id']" position="after">
                 <field name="country"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Ingram Micro: subscription periods, default plan
+         ============================================================ -->
+    <record id="view_m365_ingram_account_form_bulk" model="ir.ui.view">
+        <field name="name">m365.ingram.account.form.bulk</field>
+        <field name="model">m365.ingram.account</field>
+        <field name="inherit_id" ref="view_m365_ingram_account_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='catalog_type']" position="after">
+                <field name="default_plan_id" options="{'no_create': True}"/>
+                <field name="default_term"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_ingram_plan_list_bulk" model="ir.ui.view">
+        <field name="name">m365.ingram.plan.list.bulk</field>
+        <field name="model">m365.ingram.plan</field>
+        <field name="inherit_id" ref="view_m365_ingram_plan_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='plan_id']" position="after">
+                <field name="vendor_part_number" readonly="1" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_ingram_plan_form_bulk" model="ir.ui.view">
+        <field name="name">m365.ingram.plan.form.bulk</field>
+        <field name="model">m365.ingram.plan</field>
+        <field name="inherit_id" ref="view_m365_ingram_plan_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='description']" position="before">
+                <separator string="Subscription Periods"/>
+                <field name="term_ids" groups="m365_license_management.group_m365_admin">
+                    <list editable="bottom" create="0" delete="0">
+                        <field name="sequence" widget="handle"/>
+                        <field name="name" readonly="1"/>
+                        <field name="key" readonly="1"/>
+                        <field name="months" readonly="1"/>
+                        <field name="code"/>
+                    </list>
+                </field>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_ingram_plan_search_bulk" model="ir.ui.view">
+        <field name="name">m365.ingram.plan.search.bulk</field>
+        <field name="model">m365.ingram.plan</field>
+        <field name="inherit_id" ref="view_m365_ingram_plan_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='plan_id']" position="after">
+                <field name="vendor_part_number"/>
+                <filter name="no_teams" string="No Teams" domain="[('name', 'ilike', 'no Teams')]"/>
+                <filter name="monthly_billing" string="Monthly Billing"
+                        domain="[('name', 'ilike', 'MTH')]"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_m365_ingram_order_form_bulk" model="ir.ui.view">
+        <field name="name">m365.ingram.order.form.bulk</field>
+        <field name="model">m365.ingram.order</field>
+        <field name="inherit_id" ref="view_m365_ingram_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='line_ids']/list/field[@name='plan_id']" position="after">
+                <field name="term_id" options="{'no_create': True}"/>
             </xpath>
         </field>
     </record>

@@ -202,6 +202,9 @@ class M365TenantGdap(models.Model):
         account = self.sudo().partner_account_id or self._default_partner_account()
         if not account:
             raise UserError(_("Add a Partner Center account with its shared app first."))
+        if not account.partner_tenant_id:
+            raise UserError(_("GDAP needs the Partner Directory (Tenant) ID of the Partner "
+                              "Center account %s.", account.name))
         return account
 
     def _refresh_gdap(self):
@@ -383,7 +386,8 @@ class M365TenantGdap(models.Model):
     def _cron_refresh_gdap(self):
         """Daily: GDAP status of the tenants of the Partner Center accounts."""
         tenants = self.search([('tenant_id', '!=', False)] + self._live_domain())
-        for tenant in tenants.filtered(lambda t: t.sudo().partner_account_id.graph_client_id):
+        for tenant in tenants.filtered(lambda t: t.sudo().partner_account_id.graph_client_id
+                                       and t.sudo().partner_account_id.partner_tenant_id):
             try:
                 tenant._refresh_gdap()
             except (M365GraphError, UserError) as exc:

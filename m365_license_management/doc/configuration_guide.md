@@ -194,13 +194,22 @@ Prerequisites at Ingram (developer.ingrammicro.com, *Xvantage Integrations API P
 | Country Code | e.g. `IN` |
 | Sender ID | Name of the application (max 32), default *Odoo Microsoft 365* |
 | Vendor, Catalog Type | `Microsoft`, `IM::subscription` (empty: not sent) |
+| Default Plan, Default Subscription Period | After Synchronise Catalog: e.g. *Microsoft 365 Business Basic (no Teams) (NCE COM MTH)* (`CFQ7TTC0LH18:000P`), *1 Year* |
 | Bill-to Address ID | Only with several billing addresses |
 | Webhook Secret Key | From the portal; Webhook URL is shown to register there |
 | Require Ingram Micro Relationship / Customer Agreement | On |
 | Vendor Fields tab | Microsoft order fields (or *Import Vendor Fields* from a quote) |
 
-Then **Test Connection**, **Synchronise Catalog**, and map each plan to its catalogue
-product. Error *"no API product for …"*: the Client ID does not belong to an approved app
+Then **Test Connection**, **Synchronise Catalog**, choose the default plan and period.
+Mapping a plan to its catalogue product is optional: a plan never bought is mapped when
+its first licenses arrive. If Ingram requires the period as an order-line attribute, add a
+vendor field (level *Order Line*, value *Subscription Period*) with the name Ingram gives.
+
+Without a Partner Center account: leave the Partner Center fields of the Partner Center
+Account empty (only the shared app), or create no Partner Center Account at all; the
+licenses are then bought through Ingram, for **existing** tenants imported with
+Bulk Import Tenant, type Existing (columns Subscriptions, CustomDomains, Agreement…,
+IngramRelationship, and a Users file). Error *"no API product for …"*: the Client ID does not belong to an approved app
 with those products, or the API URL does not match the app (sandbox / production).
 
 ## 7. Odoo: tenant configuration

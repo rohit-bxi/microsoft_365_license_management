@@ -34,7 +34,7 @@ import requests
 from markupsafe import Markup, escape
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.tools.misc import consteq, hash_sign, verify_hash_signed
 
 from .m365_tenant import M365GraphError
@@ -145,6 +145,8 @@ class M365PartnerAccountSignin(models.Model):
         self._check_system()
         rec = self.sudo()
         client_id, _secret = rec._shared_app_credentials()
+        if not rec.partner_tenant_id:
+            raise UserError(_("Enter the Partner Directory (Tenant) ID first."))
         verifier = secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')

@@ -383,9 +383,9 @@ class TestM365Ingram(IngramCommon):
         self.plan.min_units = 10
         with self.assertRaisesRegex(UserError, 'at least 10 units'):
             self._order(quantity=5).action_submit()
+        # A plan without catalogue product can be ordered: mapped when delivered
         self.plan.write({'min_units': 0, 'product_id': False})
-        with self.assertRaisesRegex(UserError, 'Map the plan'):
-            self._order().action_submit()
+        self.assertEqual(self._submitted().state, 'submitted')
         self.plan.write({'product_id': self.sku.product_id.id, 'ingram_part_number': False})
         order = self._submitted()
         fake = FakeIngram({('GET', '/resellers/v6/catalog/details'): {}})

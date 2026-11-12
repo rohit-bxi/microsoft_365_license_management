@@ -20,6 +20,7 @@ from . import test_m365_ingram
 from . import test_m365_api_extras
 from . import test_m365_provisioning
 from . import test_m365_bulk_provisioning
+from . import test_m365_ingram_bulk
 from . import test_m365_security
 from . import test_m365_tenant_access
 from . import test_m365_portal

@@ -34,15 +34,17 @@ _logger = logging.getLogger(__name__)
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 STEP_STATES = [('na', 'Not Needed'), ('pending', 'Pending'), ('action', 'Action Needed'),
                ('done', 'Done'), ('failed', 'Failed')]
-STEPS = ('prov_tenant', 'prov_gdap', 'prov_agreement', 'prov_connection', 'prov_domains',
-         'prov_subscriptions', 'prov_users', 'prov_licenses', 'prov_verification')
+STEPS = ('prov_tenant', 'prov_gdap', 'prov_agreement', 'prov_relationship', 'prov_connection',
+         'prov_domains', 'prov_subscriptions', 'prov_users', 'prov_licenses',
+         'prov_verification')
 # A step runs once the steps it needs are done (or not needed)
 STEP_NEEDS = {
     'prov_gdap': ('prov_tenant',),
     'prov_agreement': ('prov_tenant',),
+    'prov_relationship': ('prov_tenant',),
     'prov_connection': ('prov_tenant',),
     'prov_domains': ('prov_connection',),
-    'prov_subscriptions': ('prov_agreement',),
+    'prov_subscriptions': ('prov_agreement', 'prov_relationship'),
     'prov_users': ('prov_connection',),
     'prov_licenses': ('prov_users',),
     'prov_verification': ('prov_licenses',),
@@ -156,6 +158,8 @@ class M365TenantProvisioning(models.Model):
     prov_gdap = fields.Selection(STEP_STATES, string="Step: GDAP", compute='_compute_provisioning')
     prov_agreement = fields.Selection(STEP_STATES, string="Step: Agreement",
                                       compute='_compute_provisioning')
+    prov_relationship = fields.Selection(STEP_STATES, string="Step: Ingram Relationship",
+                                         compute='_compute_provisioning')
     prov_connection = fields.Selection(STEP_STATES, string="Step: Connection",
                                        compute='_compute_provisioning')
     prov_domains = fields.Selection(STEP_STATES, string="Step: Domains",
@@ -201,7 +205,8 @@ class M365TenantProvisioning(models.Model):
                  'mca_accepted', 'mca_date', 'mca_email', 'mca_first_name', 'mca_last_name',
                  'mca_customer_confirmed', 'mca_error', 'custom_domains', 'domain_ids.state',
                  'pending_user_ids.state', 'app_install_state', 'connection_mode',
-                 'client_id', 'tenant_id')
+                 'client_id', 'tenant_id', 'ingram_order_ids.state', 'ingram_relationship',
+                 'partner_account_id.purchase_channel', 'partner_account_id.partner_tenant_id')
     def _compute_provisioning(self):
         Request = self.env['m365.license.request'].sudo()
         for rec in self:
@@ -215,8 +220,9 @@ class M365TenantProvisioning(models.Model):
                 steps['prov_tenant'] = 'failed'
             else:
                 steps['prov_tenant'] = 'pending'
+            channel = sudo._purchase_channel()
             # 2. GDAP, with the access of the security group of the account
-            if not account.graph_client_id:
+            if not (account.graph_client_id and account.partner_tenant_id):
                 steps['prov_gdap'] = 'na'
             else:
                 steps['prov_gdap'] = {
@@ -229,16 +235,23 @@ class M365TenantProvisioning(models.Model):
                     steps['prov_gdap'] = {'active': 'done', 'error': 'failed'}.get(
                         rec.gdap_assignment_status, 'pending')
             # 3. Microsoft Customer Agreement (to buy subscriptions)
-            orders = sudo.pc_order_ids.filtered(lambda o: o.state not in ('cancelled',
-                                                                          'rejected'))
+            orders = sudo._purchase_orders()
             if sudo._mca_recorded():
                 steps['prov_agreement'] = 'done'
             elif not orders and not rec.requested_subscriptions:
                 steps['prov_agreement'] = 'na'
-            elif rec.mca_customer_confirmed and account and account._partner_signed_in():
+            elif (channel == 'partner_center' and rec.mca_customer_confirmed and account
+                  and account._partner_signed_in()):
                 steps['prov_agreement'] = 'failed' if rec.mca_error else 'pending'
             else:
                 steps['prov_agreement'] = 'action'
+            # 3b. Reseller relationship with Ingram Micro (indirect provider)
+            ingram = self.env['m365.ingram.account'].sudo()._get_default()
+            if (channel != 'ingram' or (not orders and not rec.requested_subscriptions)
+                    or (ingram and not ingram.require_relationship)):
+                steps['prov_relationship'] = 'na'
+            else:
+                steps['prov_relationship'] = 'done' if rec.ingram_relationship else 'action'
             # 4. Connection (Graph)
             if rec.state == 'connected':
                 steps['prov_connection'] = 'done'
@@ -268,7 +281,7 @@ class M365TenantProvisioning(models.Model):
                 steps['prov_subscriptions'] = 'na' if rec.sku_ids else 'pending'
             elif orders.filtered(lambda o: o.state == 'failed'):
                 steps['prov_subscriptions'] = 'failed'
-            elif orders and all(o.state == 'done' for o in orders):
+            elif orders and all(o.state in ('done', 'delivered') for o in orders):
                 steps['prov_subscriptions'] = 'done'
             elif orders.filtered(lambda o: o.state == 'draft') or (
                     orders.filtered(lambda o: o.state == 'submitted')
@@ -377,9 +390,68 @@ class M365TenantProvisioning(models.Model):
             result.append((offer, quantity))
         return result, errors
 
-    def _order_requested_subscriptions(self):
-        """Partner Center order of the requested subscriptions, submitted for approval."""
+    def _purchase_orders(self):
+        """Orders of the purchase channel, not cancelled nor rejected: Partner Center
+        subscription orders or Ingram Micro license orders."""
         self.ensure_one()
+        orders = (self.ingram_order_ids if self._purchase_channel() == 'ingram'
+                  else self.pc_order_ids)
+        return orders.filtered(lambda o: o.state not in ('cancelled', 'rejected'))
+
+    def _parse_requested_ingram(self):
+        """:return: (list of (plan, period, quantity), list of errors)"""
+        self.ensure_one()
+        account = self.env['m365.ingram.account']._get_default()
+        if not account:
+            return [], [_("Add an Ingram Micro account first.")]
+        result, errors = [], []
+        for text in filter(None, (t.strip() for t in SUBSCRIPTION_SPLIT_RE.split(
+                self.requested_subscriptions or ''))):
+            if text.isdigit():
+                plan = account.default_plan_id
+                if not plan:
+                    errors.append(_("\"%s\": choose the default plan of the Ingram Micro "
+                                    "account, or name the plan.", text))
+                    continue
+                result.append((plan, plan._default_term(), int(text)))
+                continue
+            match = SUBSCRIPTION_LINE_RE.match(text)
+            if not match:
+                errors.append(_("\"%s\": expected <plan> = <quantity>.", text))
+                continue
+            plan, term, error = account._match_plan(match.group('offer'))
+            if error:
+                errors.append(error)
+                continue
+            result.append((plan, term, int(match.group('qty'))))
+        return result, errors
+
+    def _order_requested_ingram(self):
+        """Ingram Micro license order of the requested subscriptions, submitted."""
+        self.ensure_one()
+        lines, errors = self._parse_requested_ingram()
+        if errors:
+            raise UserError("\n".join(errors))
+        if not lines:
+            raise UserError(_("No subscription to buy for %s.", self.name))
+        account = self.env['m365.ingram.account']._get_default()
+        order = self.env['m365.ingram.order'].create({
+            'tenant_id': self.id, 'account_id': account.id,
+            'reason': _("Provisioning of %s", self.name),
+            'line_ids': [(0, 0, {'plan_id': plan.id, 'term_id': term.id or False,
+                                 'quantity': qty, 'unit_price': plan.unit_price,
+                                 'currency_id': plan.currency_id.id or False})
+                         for plan, term, qty in lines],
+        })
+        order.action_submit()
+        return order
+
+    def _order_requested_subscriptions(self):
+        """Order of the requested subscriptions (Partner Center or Ingram Micro, as the
+        purchase channel), submitted for approval."""
+        self.ensure_one()
+        if self._purchase_channel() == 'ingram':
+            return self._order_requested_ingram()
         lines, errors = self._parse_requested_subscriptions()
         if errors:
             raise UserError("\n".join(errors))
@@ -456,6 +528,11 @@ class M365TenantProvisioning(models.Model):
     def _prov_run_agreement(self, interactive):
         if self.sudo()._mca_recorded():
             return 'progress', _("Customer Agreement recorded.")
+        if self._purchase_channel() == 'ingram':
+            # Sent to Ingram Micro with the order (vendor fields): recorded in Odoo only
+            return 'action', _("Acceptance of the Microsoft Customer Agreement: record who "
+                               "accepted it and when (Purchasing tab, or the Agreement "
+                               "columns of the customer file)")
         account = self._prov_account()
         if not (account and account._partner_signed_in()):
             return 'action', _("Acceptance of the Microsoft Customer Agreement: record it "
@@ -470,6 +547,13 @@ class M365TenantProvisioning(models.Model):
             self._log('agreement', 'failed', str(exc))
             raise
         return 'progress', _("Customer Agreement recorded.")
+
+    def _prov_run_relationship(self, interactive):
+        if self.ingram_relationship:
+            return 'progress', _("Ingram Micro relationship confirmed.")
+        return 'action', _("Confirmation that the customer accepted the reseller relationship "
+                           "of Ingram Micro (Purchasing tab, or the IngramRelationship column "
+                           "of the customer file)")
 
     def _prov_run_connection(self, interactive):
         if self.state == 'connected':
@@ -544,6 +628,8 @@ class M365TenantProvisioning(models.Model):
             for d in waiting))
 
     def _prov_run_subscriptions(self, interactive):
+        if self._purchase_channel() == 'ingram':
+            return self._prov_run_subscriptions_ingram(interactive)
         Order = self.env['m365.pc.order']
         orders = Order.browse(self.sudo().pc_order_ids.filtered(
             lambda o: o.state not in ('cancelled', 'rejected')).ids)
@@ -577,6 +663,46 @@ class M365TenantProvisioning(models.Model):
         if all(o.state == 'done' for o in orders):
             return 'progress', _("Subscriptions provisioned.")
         return 'waiting', _("Partner Center to provision the subscriptions")
+
+    def _prov_run_subscriptions_ingram(self, interactive):
+        Order = self.env['m365.ingram.order']
+        orders = Order.browse(self.sudo()._purchase_orders().ids)
+        if not orders:
+            if not self.requested_subscriptions:
+                return 'action', _("Subscriptions to buy (Buy Licenses, or Subscriptions to "
+                                   "Buy)")
+            orders = self._order_requested_ingram()
+        drafts = orders.filtered(lambda o: o.state == 'draft')
+        if drafts:
+            return 'action', _("Submit the order(s) %s", ", ".join(drafts.mapped('name')))
+        submitted = orders.filtered(lambda o: o.state == 'submitted')
+        if submitted:
+            if not self.prov_approve_orders:
+                return 'action', _("Approval of the order(s) %s",
+                                   ", ".join(submitted.mapped('name')))
+            for order in submitted:
+                order._log('info', _("approved automatically (option of the customer file "
+                                     "imported by %s).", self.env.user.name))
+            submitted.action_approve()
+        failed = orders.filtered(lambda o: o.state == 'failed')
+        if failed:
+            failed.action_retry()
+            still = failed.filtered(lambda o: o.state == 'failed')
+            if still and not interactive:
+                raise M365GraphError(still[0].error_message or _("Order failed."))
+            if still:
+                return 'action', _("Order(s) %s failed again.", ", ".join(still.mapped('name')))
+        confirmed = orders.filtered(lambda o: o.state == 'confirmed')
+        if confirmed and self.state in ('connected', 'error'):
+            self._sync_inventory()
+            confirmed._check_delivery()
+        if all(o.state == 'delivered' for o in orders):
+            return 'progress', _("Licenses delivered.")
+        if orders.filtered(lambda o: o.state in ('sending', 'sent')):
+            return 'waiting', _("Ingram Micro to confirm the order(s) %s",
+                                ", ".join(orders.mapped('name')))
+        return 'waiting', _("The licenses of the order(s) %s in the tenant",
+                            ", ".join(orders.mapped('name')))
 
     def _prov_run_users(self, interactive):
         pending = self.env['m365.tenant.pending.user'].browse(self.sudo().pending_user_ids.ids)

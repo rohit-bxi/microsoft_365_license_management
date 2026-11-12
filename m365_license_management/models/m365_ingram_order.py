@@ -200,9 +200,12 @@ class M365IngramOrder(models.Model):
             if plan.account_id != self.account_id:
                 raise ValidationError(_("%s is not a plan of this Ingram Micro account.",
                                         plan.name))
-            if not plan.product_id:
-                raise UserError(_("Map the plan %s to its catalogue product first: Odoo uses "
-                                  "it to see when the licenses arrive.", plan.name))
+            if line.term_id and line.term_id.plan_id != plan:
+                raise UserError(_("%(period)s is not a period of the plan %(plan)s.",
+                                  period=line.term_id.name, plan=plan.name))
+            if len(plan.term_ids) > 1 and not line.term_id:
+                raise UserError(_("Choose the subscription period of %(plan)s (%(periods)s).",
+                                  plan=plan.name, periods=", ".join(plan.term_ids.mapped('name'))))
             if plan.min_units and line.quantity < plan.min_units:
                 raise UserError(_("%(plan)s: at least %(count)s units.", plan=plan.name,
                                   count=plan.min_units))
@@ -354,6 +357,9 @@ class M365IngramOrder(models.Model):
             'mca_date': tenant.mca_date.isoformat() if tenant.mca_date else '',
             'plan_id': line.plan_id.plan_id if line else '',
             'quantity': line.quantity if line else '',
+            'term': line.term_id.code if line else '',
+            'term_months': line.term_id.months if line and line.term_id else '',
+            'term_key': line.term_id.key if line else '',
             'fixed': fixed or '',
         }
         return values.get(source) or ''
@@ -476,7 +482,7 @@ class M365IngramOrder(models.Model):
             self._log('failed', str(exc))
             return False
         for line in self.line_ids:
-            line.baseline_units = self.tenant_id._product_units(line.product_id)
+            line._set_baseline()
         # Saved before the call: a retry after no answer looks for the order first
         self.write({'state': 'sending', 'send_attempted': True, 'error_message': False,
                     'attempt_date': fields.Datetime.now()})
@@ -613,8 +619,7 @@ class M365IngramOrder(models.Model):
         now = fields.Datetime.now()
         for rec in self.filtered(lambda o: o.state == 'confirmed'):
             for line in rec.line_ids:
-                units = rec.tenant_id._product_units(line.product_id)
-                line.delivered = units >= line.baseline_units + line.quantity
+                line.delivered = line._is_delivered()
             if all(rec.line_ids.mapped('delivered')):
                 rec.write({'state': 'delivered', 'delivered_date': now})
                 rec.message_post(body=_("The licenses are in the tenant."))
@@ -698,6 +703,9 @@ class M365IngramOrderLine(models.Model):
                               domain="[('account_id', '=', account_id)]")
     product_id = fields.Many2one(related='plan_id.product_id', store=True,
                                  string="Catalogue Product")
+    term_id = fields.Many2one('m365.ingram.plan.term', string="Subscription Period",
+                              domain="[('plan_id', '=', plan_id)]",
+                              help="Required when the plan is sold for several periods.")
     quantity = fields.Integer(required=True, default=1)
     unit_price = fields.Float(string="Unit Price", digits=(16, 2))
     currency_id = fields.Many2one('res.currency', string="Currency")
@@ -705,7 +713,66 @@ class M365IngramOrderLine(models.Model):
     baseline_units = fields.Integer(
         string="Licenses Before", readonly=True, copy=False,
         help="Licenses of the product in the tenant when the order was sent.")
+    baseline_skus = fields.Text(
+        readonly=True, copy=False,
+        help="Licenses of every SKU of the tenant when the order was sent, for a plan "
+             "without catalogue product (JSON).")
     delivered = fields.Boolean(readonly=True, copy=False)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        Plan = self.env['m365.ingram.plan']
+        for vals in vals_list:
+            if vals.get('plan_id') and 'term_id' not in vals:
+                vals['term_id'] = Plan.browse(vals['plan_id'])._default_term().id or False
+        return super().create(vals_list)
+
+    @api.onchange('plan_id')
+    def _onchange_plan_term(self):
+        if self.plan_id and self.term_id.plan_id != self.plan_id:
+            self.term_id = self.plan_id._default_term()
+
+    def _tenant_skus(self):
+        return self.env['m365.sku'].sudo().search([('tenant_id', '=', self.tenant_id.id),
+                                                   ('status', '!=', 'Deleted')])
+
+    def _set_baseline(self):
+        """Licenses in the tenant when the order is sent: of the product of the plan, or of
+        every SKU when the plan has no product yet (a license never bought before)."""
+        self.ensure_one()
+        if self.product_id:
+            self.write({'baseline_units': self.tenant_id._product_units(self.product_id),
+                        'baseline_skus': False})
+        else:
+            self.write({'baseline_units': 0, 'baseline_skus': json.dumps(
+                {s.sku_id: s.enabled_units for s in self._tenant_skus()})})
+
+    def _is_delivered(self):
+        """The ordered licenses are in the tenant. A plan without product is mapped to the
+        license that grew by the ordered quantity."""
+        self.ensure_one()
+        if not self.baseline_skus:
+            return (self.tenant_id._product_units(self.product_id)
+                    >= self.baseline_units + self.quantity)
+        try:
+            before = json.loads(self.baseline_skus)
+        except ValueError:
+            before = {}
+        grown = self._tenant_skus().filtered(
+            lambda s: s.enabled_units - before.get(s.sku_id, 0) >= self.quantity)
+        base = self.env['m365.ingram.account']._base_name(self.plan_id.name)
+        named = grown.filtered(lambda s: self.env['m365.ingram.account']._base_name(
+            s.product_id.name) == base)
+        sku = named[:1] if len(named) == 1 else grown if len(grown) == 1 else None
+        if not sku:
+            return False
+        if not self.plan_id.product_id:
+            self.plan_id.sudo().write({'product_id': sku.product_id.id,
+                                       'product_suggested': False})
+            self.order_id._log('info', _("plan %(plan)s mapped to %(product)s, the license "
+                                         "delivered in the tenant.", plan=self.plan_id.name,
+                                         product=sku.product_id.name))
+        return True
 
     _quantity_positive = models.Constraint('CHECK(quantity > 0)',
                                            'The quantity must be positive.')

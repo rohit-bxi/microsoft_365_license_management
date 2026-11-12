@@ -525,9 +525,10 @@ class TestM365AutoProvision(BulkCommon):
         self.assertEqual(tenant.pending_user_ids.upn, 'nestor@contoso-example.com')
         self.assertEqual(
             [tenant[s] for s in ('prov_tenant', 'prov_gdap', 'prov_agreement',
-                                 'prov_connection', 'prov_domains', 'prov_subscriptions',
-                                 'prov_users', 'prov_licenses', 'prov_verification')],
-            ['done'] * 9)
+                                 'prov_relationship', 'prov_connection', 'prov_domains',
+                                 'prov_subscriptions', 'prov_users', 'prov_licenses',
+                                 'prov_verification')],
+            ['done', 'done', 'done', 'na'] + ['done'] * 6)  # Partner Center: no Ingram
         self.assertEqual(tenant.prov_state, 'done')
         self.assertFalse(tenant.auto_provision)
         self.assertTrue(self._logs('auto_provision').filtered(lambda l: l.status == 'success'))

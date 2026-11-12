@@ -53,6 +53,13 @@ class M365TenantLicenses(models.Model):
                                               (s.sku_id or '').lower()))[:1]
         if sku:
             return sku
+        if self._purchase_channel() == 'ingram':
+            return self._match_ingram_license(key, skus) or self._match_offer_license(
+                key, skus)
+        return self._match_offer_license(key, skus) or self._match_ingram_license(key, skus)
+
+    def _match_offer_license(self, key, skus):
+        """License of a Partner Center offer (its provisioningId is the Graph skuId)."""
         account = self.sudo().partner_account_id or self._default_partner_account()
         Offer = self.env['m365.pc.offer'].sudo().with_context(active_test=False)
         if key == DEFAULT_LICENSE:
@@ -63,6 +70,18 @@ class M365TenantLicenses(models.Model):
                                    ('catalog_item_id', '=ilike', key)])
         guids = {(o.provisioning_id or '').lower() for o in offers} - {''}
         return skus.filtered(lambda s: (s.sku_id or '').lower() in guids)[:1]
+
+    def _match_ingram_license(self, key, skus):
+        """License of an Ingram Micro plan, through the catalogue product of the plan."""
+        account = self.env['m365.ingram.account'].sudo()._get_default()
+        if not account:
+            return skus.browse()
+        if key == DEFAULT_LICENSE:
+            plans = account.default_plan_id
+        else:
+            plans, _term, _error = account._match_plan(key)
+        products = plans.product_id
+        return skus.filtered(lambda s: s.product_id and s.product_id in products)[:1]
 
     def _user_domain(self):
         """Domain of the user names without one: the first custom domain, else the

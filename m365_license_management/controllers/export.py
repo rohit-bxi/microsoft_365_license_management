@@ -104,8 +104,10 @@ class M365ExportController(http.Controller):
                 else '',
                 label(tenant, 'gdap_status'), label(tenant, 'gdap_assignment_status'),
                 fields.Datetime.to_string(tenant.gdap_end_date) or '',
-                ', '.join('%s (%s)' % (o.name, o.state) for o in orders),
-                ', '.join(filter(None, orders.line_ids.mapped('subscription_id'))),
+                ', '.join('%s (%s)' % (o.name, o.state)
+                          for o in list(orders) + list(sudo.ingram_order_ids)),
+                ', '.join(filter(None, orders.line_ids.mapped('subscription_id')
+                                 + sudo.ingram_order_ids.mapped('ingram_order_numbers'))),
                 len(tenant.user_ids),
                 len(sudo.pending_user_ids.filtered(lambda u: u.state == 'waiting')),
                 len(done), len(requests.filtered(lambda r: r.state == 'failed')),
@@ -164,17 +166,27 @@ class M365ExportController(http.Controller):
                 r.verification_message or r.error_message,
                 fields.Datetime.to_string(r.executed_date),
             ] for r in requests])
-        # 5. Subscriptions bought through Partner Center
+        # 5. Subscriptions bought through Partner Center or Ingram Micro
         lines = request.env['m365.pc.order.line'].search(
             [('tenant_id', 'in', tenants.ids)], order='tenant_id, order_id')
+        im_lines = request.env['m365.ingram.order.line'].search(
+            [('tenant_id', 'in', tenants.ids)], order='tenant_id, order_id')
         self._sheet(book, 'Subscriptions', [
-            'Tenant', 'Order', 'Offer', 'Quantity', 'Subscription ID', 'Order Status',
-            'Partner Center Status', 'Ordered On', 'Done On'], [[
-                line.tenant_id.name, line.order_id.name, line.offer_id.display_name,
-                line.quantity, line.subscription_id, label(line.order_id, 'state'),
-                line.pc_status, fields.Datetime.to_string(line.order_id.sent_date),
+            'Tenant', 'Channel', 'Order', 'Offer / Plan', 'Period', 'Quantity',
+            'Subscription ID / Ingram Order', 'Order Status', 'Provider Status', 'Ordered On',
+            'Done On'], [[
+                line.tenant_id.name, 'Partner Center', line.order_id.name,
+                line.offer_id.display_name, line.offer_id.term_duration, line.quantity,
+                line.subscription_id, label(line.order_id, 'state'), line.pc_status,
+                fields.Datetime.to_string(line.order_id.sent_date),
                 fields.Datetime.to_string(line.order_id.done_date),
-            ] for line in lines])
+            ] for line in lines] + [[
+                line.tenant_id.name, 'Ingram Micro', line.order_id.name, line.plan_id.name,
+                line.term_id.name, line.quantity, line.order_id.ingram_order_numbers,
+                label(line.order_id, 'state'), line.order_id.confirmation_number,
+                fields.Datetime.to_string(line.order_id.sent_date),
+                fields.Datetime.to_string(line.order_id.delivered_date),
+            ] for line in im_lines])
         out = io.BytesIO()
         book.save(out)
         return request.make_response(out.getvalue(), headers=[

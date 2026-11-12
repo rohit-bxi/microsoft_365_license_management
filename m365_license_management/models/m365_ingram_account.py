@@ -40,6 +40,23 @@ ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 CATALOG_PAGE_SIZE = 100
 CATALOG_MAX_PAGES = 100
 PLAN_SUFFIX_RE = re.compile(r'\s*\([^)]*\)\s*$')
+TERM_KEYS = [('P1M', '1 Month'), ('P1Y', '1 Year'), ('P3Y', '3 Years')]
+# "<plan> 1 Year", "<plan> 12 months", "<plan> P1Y": the period at the end of a plan text
+TERM_SUFFIX_RE = re.compile(r'^(?P<name>.+?)\s+(?:(?P<iso>P\d+[MY])|(?P<n>\d+)\s*'
+                            r'(?P<unit>months?|years?|mth|yr))\s*$', re.I)
+
+
+def term_key(period, unit):
+    """ISO key of a subscription period: (1, 'YEARS') -> 'P1Y'; False when unknown."""
+    unit = (unit or '').strip().lower()
+    letter = 'Y' if unit.startswith(('y', 'ann')) else 'M' if unit.startswith('m') else ''
+    try:
+        number = int(float(period))
+    except (TypeError, ValueError):
+        return False
+    if letter == 'M' and number % 12 == 0:
+        number, letter = number // 12, 'Y'
+    return 'P%s%s' % (number, letter) if letter and number > 0 else False
 
 
 class M365IngramError(M365GraphError):
@@ -85,6 +102,15 @@ class M365IngramAccount(models.Model):
                                     "IM-CountryCode.")
     sender_id = fields.Char(string="Sender ID", required=True, default='Odoo Microsoft 365',
                             help="Name of the application sending the calls: IM-SenderID.")
+    default_plan_id = fields.Many2one(
+        'm365.ingram.plan', string="Default Plan", domain="[('account_id', '=', id)]",
+        help="Plan bought when the Subscriptions of a customer give a quantity only, and "
+             "license \"default\" of the users, e.g. Microsoft 365 Business Basic (no Teams) "
+             "(NCE COM MTH).")
+    default_term = fields.Selection(
+        TERM_KEYS, string="Default Subscription Period", default='P1Y',
+        help="Period of the order lines when the plan can be bought for several periods "
+             "and none is given.")
     vendor_name = fields.Char(string="Vendor", required=True, default='Microsoft',
                               help="Vendor of the subscriptions read from the catalog.")
     catalog_type = fields.Char(
@@ -173,8 +199,7 @@ class M365IngramAccount(models.Model):
     # ------------------------------------------------------------------
     # Client
     # ------------------------------------------------------------------
-    @staticmethod
-    def _format_error(resp):
+    def _format_error(self, resp):
         """Ingram errors: ``{"errors": [{"type", "message", "fields": [...]}]}``."""
         try:
             data = resp.json()
@@ -192,7 +217,7 @@ class M365IngramAccount(models.Model):
         fault = data.get('fault') if isinstance(data, dict) else None
         if isinstance(fault, dict) and NO_API_PRODUCT in str(
                 (fault.get('detail') or {}).get('errorcode') or ''):
-            return _(
+            return self.env._(
                 "HTTP %(status)s: Ingram Micro refused the call: the app of this Client ID "
                 "has no API product for %(path)s (%(fault)s). The credentials are valid. "
                 "Check that the Client ID and Secret are the ones of the app in the Ingram "
@@ -405,6 +430,52 @@ class M365IngramAccount(models.Model):
         """``Microsoft 365 E3 (NCE COM MTH)`` -> ``microsoft 365 e3``"""
         return PLAN_SUFFIX_RE.sub('', name or '').strip().lower()
 
+    def _match_plan(self, text):
+        """Plan named by a text of the customer file: plan ID, vendor or Ingram part number
+        (e.g. CFQ7TTC0LH18:000P), plan name, or plan name without its (NCE ...) suffix,
+        optionally followed by the period (\"... 1 Year\", \"... P1M\").
+
+        :return: (plan, period or empty, error or False)
+        """
+        self.ensure_one()
+        Plan, Term = self.env['m365.ingram.plan'], self.env['m365.ingram.plan.term']
+        text, key = (text or '').strip(), False
+        match = TERM_SUFFIX_RE.match(text)
+        if match:
+            key = (match.group('iso').upper() if match.group('iso')
+                   else term_key(match.group('n'), match.group('unit')))
+            text = match.group('name').strip()
+        domain = [('account_id', '=', self.id)]
+        plans = Plan.search(domain + ['|', '|', ('plan_id', '=', text),
+                                      ('vendor_part_number', '=ilike', text),
+                                      ('ingram_part_number', '=ilike', text)])
+        if not plans:
+            plans = Plan.search(domain + [('name', '=ilike', text)])
+        if not plans:
+            # Name without the (NCE ...) suffix; the text may end in brackets itself, e.g.
+            # "Microsoft 365 Business Basic (no Teams)"
+            candidates = Plan.search(domain)
+            for wanted_name in (text.lower(), self._base_name(text)):
+                plans = candidates.filtered(lambda p: self._base_name(p.name) == wanted_name)
+                if plans:
+                    break
+        if not plans:
+            return Plan, Term, _("Plan \"%s\" not found in the Ingram Micro catalog.", text)
+        wanted = key or self.default_term
+        if len(plans) > 1:
+            # One plan per period (e.g. NCE COM MTH and NCE COM ANN): the period chooses
+            by_term = plans.filtered(lambda p: wanted in p.term_ids.mapped('key'))
+            plans = by_term if len(by_term) == 1 else plans
+        if len(plans) > 1:
+            return Plan, Term, _("\"%(plan)s\" matches several plans: %(list)s. Use the plan "
+                                 "ID or the part number.", plan=text, list="; ".join(
+                                     "%s (%s)" % (p.display_name, p.plan_id) for p in plans))
+        term = plans.term_ids.filtered(lambda t: t.key == wanted)[:1]
+        if key and not term and plans.term_ids:
+            return Plan, Term, _("%(plan)s is not sold for %(period)s.", plan=plans.name,
+                                 period=dict(TERM_KEYS).get(key, key))
+        return plans, term or plans._default_term(), False
+
     def _sync_plans(self):
         """Read the Microsoft subscriptions of the catalog. :return: number of plans"""
         self.ensure_one()
@@ -438,6 +509,8 @@ class M365IngramAccount(models.Model):
                 else:
                     plan = existing[plan_id] = Plan.create(
                         dict(vals, account_id=self.id, plan_id=plan_id))
+                plan._set_terms(item.get('subscriptionPeriodSummary')
+                                or item.get('subscriptionPeriod'))
                 if not plan.product_id:
                     product = products.get(self._base_name(plan.name))
                     if product:
@@ -483,6 +556,9 @@ class M365IngramVmfAttribute(models.Model):
         ('mca_date', 'Customer Agreement: Date (YYYY-MM-DD)'),
         ('plan_id', 'Plan ID (lines)'),
         ('quantity', 'Quantity (lines)'),
+        ('term', 'Subscription Period, as in the catalog (lines)'),
+        ('term_months', 'Subscription Period in Months (lines)'),
+        ('term_key', 'Subscription Period, ISO e.g. P1Y (lines)'),
         ('fixed', 'Fixed Value'),
     ], string="Value", required=True, default='fixed')
     value = fields.Char(string="Fixed Value")

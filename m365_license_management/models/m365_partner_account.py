@@ -47,10 +47,13 @@ class M365PartnerAccount(models.Model):
     company_id = fields.Many2one('res.company', string="Company",
                                  default=lambda self: self.env.company)
     partner_tenant_id = fields.Char(
-        string="Partner Directory (Tenant) ID", required=True, copy=False, tracking=True,
-        help="Directory ID (or primary domain) of your Partner Center (CSP) tenant.")
-    client_id = fields.Char(string="Application (Client) ID", required=True, copy=False,
-                            tracking=True)
+        string="Partner Directory (Tenant) ID", copy=False, tracking=True,
+        help="Directory ID (or primary domain) of your Partner Center (CSP) tenant. Needed "
+             "for Partner Center, GDAP and the partner user; leave empty to use only the "
+             "shared app (without Partner Center).")
+    client_id = fields.Char(string="Application (Client) ID", copy=False, tracking=True,
+                            help="App of Partner Center (App management). Empty: Partner "
+                                 "Center is not used, only the shared app.")
     client_secret = fields.Char(string="Client Secret", copy=False, groups=ADMIN_GROUP)
     authority_url = fields.Char(string="Authority URL", required=True,
                                 default='https://login.microsoftonline.com')
@@ -231,8 +234,20 @@ class M365PartnerAccount(models.Model):
     # ------------------------------------------------------------------
     # Buttons
     # ------------------------------------------------------------------
+    def _pc_configured(self):
+        """Partner Center credentials entered (else the account carries only the shared
+        app, for tenants connected without Partner Center)."""
+        self.ensure_one()
+        return bool(self.partner_tenant_id and self.client_id and self.sudo().client_secret)
+
     def action_test_connection(self):
         self.ensure_one()
+        if not self._pc_configured():
+            return self.env['m365.tenant']._notify(_(
+                "Partner Center is not configured on this account: enter the partner "
+                "directory ID, the application ID and the secret of Partner Center to "
+                "create tenants and buy through Partner Center. The shared app works "
+                "without them."), 'warning')
         try:
             _status, profile = self._pc_request('GET', '/v1/profiles/legalbusiness')
         except M365GraphError as exc:

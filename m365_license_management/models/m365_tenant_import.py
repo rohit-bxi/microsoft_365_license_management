@@ -44,6 +44,15 @@ COLUMNS = [
     ('company_id', 'company', False),
     ('low_availability_percent', 'percent', False),
     ('low_availability_units', 'units', False),
+    # Provisioning of existing tenants (licenses through Ingram Micro, users, domains)
+    ('requested_subscriptions', 'text', False),
+    ('custom_domains', 'domains', False),
+    ('mca_first_name', 'text', False),
+    ('mca_last_name', 'text', False),
+    ('mca_email', 'text', False),
+    ('mca_phone', 'text', False),
+    ('mca_date', 'date', False),
+    ('ingram_relationship', 'bool', False),
 ]
 # Must be unique (case insensitive) within the file and among the existing tenants
 UNIQUE_FIELDS = ('tenant_id', 'domain', 'name')
@@ -98,6 +107,7 @@ NEW_COLUMNS = [
     ('mca_email', 'text', False),
     ('mca_phone', 'text', False),
     ('mca_date', 'date', False),
+    ('ingram_relationship', 'bool', False),
 ]
 NEW_HEADERS = {
     'name': 'CompanyName', 'domain': 'Domain', 'contact_first_name': 'FirstName',
@@ -110,6 +120,7 @@ NEW_HEADERS = {
     'custom_domains': 'CustomDomains',
     'mca_first_name': 'AgreementFirstName', 'mca_last_name': 'AgreementLastName',
     'mca_email': 'AgreementEmail', 'mca_phone': 'AgreementPhone', 'mca_date': 'AgreementDate',
+    'ingram_relationship': 'IngramRelationship',
 }
 # Other accepted headers of the new tenant columns (normalised)
 NEW_ALIASES = {'initialdomain': 'domain', 'initial domain': 'domain'}
@@ -124,7 +135,7 @@ NEW_SAMPLE = {
     'requested_subscriptions': 'Microsoft 365 Business Basic (no Teams) = 10',
     'custom_domains': 'contoso-example.com', 'mca_first_name': 'Adele',
     'mca_last_name': 'Vance', 'mca_email': 'adele.vance@contoso.com', 'mca_phone': '',
-    'mca_date': '',
+    'mca_date': '', 'ingram_relationship': '',
 }
 # Users sheet of the customer file: (key, header, required, other accepted headers)
 USER_SHEET = 'Users'
@@ -195,6 +206,11 @@ class M365TenantImportWizard(models.TransientModel):
         help="You confirm that each customer of the file accepted the Microsoft Customer "
              "Agreement (Agreement columns, else the contact). Odoo attests it in Partner "
              "Center with the signed-in partner user.")
+    ingram_linked = fields.Boolean(
+        string="The Customers Accepted the Reseller Relationship of Ingram Micro",
+        help="Each customer of the file accepted the reseller relationship of Ingram Micro "
+             "(indirect provider) in its Microsoft 365 admin center: Ingram Micro can order "
+             "for it. Column IngramRelationship: per customer.")
     make_custom_default = fields.Boolean(
         string="Make the Custom Domain the Default", default=True,
         help="Once verified, the first custom domain of each customer becomes the default "
@@ -236,6 +252,8 @@ class M365TenantImportWizard(models.TransientModel):
             lookup[fname] = fname
             lookup[self._normalise(Tenant._fields[fname].string)] = fname
             lookup[self._normalise(self._column_title(fname))] = fname
+            if fname in NEW_HEADERS:  # customer file titles, e.g. Subscriptions
+                lookup[self._normalise(NEW_HEADERS[fname])] = fname
         if self.tenant_type == 'new':
             lookup.update(NEW_ALIASES)
         mapping, unknown = {}, []
@@ -351,7 +369,7 @@ class M365TenantImportWizard(models.TransientModel):
         kinds = {fname: kind for fname, kind, _required in columns}
         required = {fname for fname, _kind, req in columns if req}
         lookups = {'company': {c.name.lower(): c for c in self.env.user.company_ids}}
-        defaults = {}
+        defaults = self._option_defaults()
         if self.tenant_type == 'new':
             account = self.partner_account_id
             if not account:
@@ -363,12 +381,7 @@ class M365TenantImportWizard(models.TransientModel):
             defaults.update(tenant_type='new', partner_account_id=account.id,
                             culture=account.default_culture,
                             language=account.default_language, enable_gdap=account.enable_gdap,
-                            auto_initial_domain=self.pick_free_domain,
-                            custom_domain_default=self.make_custom_default,
-                            mca_customer_confirmed=self.mca_confirmed,
-                            auto_provision=self.auto_provision,
-                            prov_approve_orders=self.approve_orders,
-                            prov_user_id=self.env.uid)
+                            auto_initial_domain=self.pick_free_domain)
         cache = {}
 
         def shared_account():
@@ -382,7 +395,7 @@ class M365TenantImportWizard(models.TransientModel):
         existing = {fname: {(value or '').lower() for value in tenants.mapped(fname)}
                     for fname in UNIQUE_FIELDS}
         seen = {fname: {} for fname in UNIQUE_FIELDS}
-        customs = self._custom_domains_taken(tenants) if self.tenant_type == 'new' else {}
+        customs = self._custom_domains_taken(tenants)
         seen_customs = {}
         result = []
         for sn, values in enumerate(rows[1:], start=1):
@@ -411,6 +424,9 @@ class M365TenantImportWizard(models.TransientModel):
                 elif not vals.get('client_id') and \
                         Tenant._fields['client_id'].string not in invalid:
                     errors.append(_("%s is required.", Tenant._fields['client_id'].string))
+            errors += self._apply_agreement(vals)
+            if self.tenant_type == 'existing':
+                errors += self._check_custom_domains(vals, customs, seen_customs, sn)
             if self.tenant_type == 'new':
                 errors += self._split_initial_domain(vals, existing, seen, customs,
                                                      seen_customs, sn)
@@ -432,9 +448,45 @@ class M365TenantImportWizard(models.TransientModel):
                 seen[fname].setdefault(key, sn)
             result.append({'sn': sn, 'raw': raw, 'vals': vals, 'errors': errors,
                            'users': []})
-        if self.tenant_type == 'new':
-            self._parse_users(result)
+        self._parse_users(result)
         return result
+
+    def _import_channel(self):
+        """Where the licenses of the file are bought: Partner Center or Ingram Micro."""
+        account = self.partner_account_id or self.env['m365.tenant']._default_partner_account()
+        return account.purchase_channel if account else 'ingram'
+
+    def _option_defaults(self):
+        """Values of the options of the wizard, for every tenant of the file."""
+        today = fields.Date.context_today(self)
+        vals = {'custom_domain_default': self.make_custom_default,
+                'mca_customer_confirmed': self.mca_confirmed,
+                'auto_provision': self.auto_provision,
+                'prov_approve_orders': self.approve_orders,
+                'prov_user_id': self.env.uid}
+        if self.ingram_linked:
+            vals.update(ingram_relationship=True, ingram_relationship_date=today)
+        return vals
+
+    def _apply_agreement(self, vals):
+        """Through Ingram Micro, the acceptance of the Customer Agreement confirmed by the
+        file is recorded on the tenant (sent with the orders); through Partner Center it is
+        attested later with the partner user. :return: errors"""
+        if vals.get('ingram_relationship') and not vals.get('ingram_relationship_date'):
+            vals['ingram_relationship_date'] = fields.Date.context_today(self)
+        if not self.mca_confirmed or self._import_channel() != 'ingram':
+            return []
+        email = vals.get('mca_email') or vals.get('contact_email')
+        first = vals.get('mca_first_name') or vals.get('contact_first_name')
+        last = vals.get('mca_last_name') or vals.get('contact_last_name')
+        if not (email and (first or last)):
+            return [_("Customer Agreement: AgreementFirstName or AgreementLastName and "
+                      "AgreementEmail are required (who accepted it).")]
+        vals.update(mca_accepted=True, mca_email=email, mca_first_name=first or False,
+                    mca_last_name=last or False,
+                    mca_phone=vals.get('mca_phone') or vals.get('contact_phone') or False,
+                    mca_date=vals.get('mca_date') or fields.Date.context_today(self))
+        return []
 
     # ------------------------------------------------------------------
     # Domains of the new tenants
@@ -472,6 +524,11 @@ class M365TenantImportWizard(models.TransientModel):
             vals['auto_initial_domain'] = True
         if names:
             vals['custom_domains'] = '; '.join(names)
+        return self._check_custom_domains(vals, customs, seen_customs, sn)
+
+    def _check_custom_domains(self, vals, customs, seen_customs, sn):
+        """Custom domains used by another tenant or another row. :return: errors"""
+        names = self.env['m365.tenant']._split_domains(vals.get('custom_domains'))
         errors = []
         for name in names:
             if name in customs:
@@ -664,21 +721,20 @@ class M365TenantImportWizard(models.TransientModel):
         tenants = self.env['m365.tenant'].create([row['vals'] for row in rows])
         if self.tenant_type == 'new':
             self._link_customers(tenants)
-            self.env['m365.tenant.pending.user'].create([
-                dict(user, tenant_id=tenant.id, requested_by=self.env.uid)
-                for row, tenant in zip(rows, tenants) for user in row['users']])
+        self.env['m365.tenant.pending.user'].create([
+            dict(user, tenant_id=tenant.id, requested_by=self.env.uid)
+            for row, tenant in zip(rows, tenants) for user in row['users']])
         for tenant in tenants:
             tenant._message_log(body=_("Tenant created by bulk import from %s.",
                                        self.filename))
-        if self.tenant_type == 'new':
-            self._log_import_options(tenants)
+        self._log_import_options(tenants)
         # Do not keep client secrets in the wizard any longer than needed
         self.write({'file': False, 'users_file': False})
         action = self.env['ir.actions.act_window']._for_xml_id(
             'm365_license_management.action_m365_tenant')
         action.update(name=_("Imported Tenants"), domain=[('id', 'in', tenants.ids)],
                       target='main')
-        if self.tenant_type == 'new' and self.auto_provision:
+        if self.auto_provision:
             message = _("%(count)s tenant(s) and %(users)s user(s) added. Odoo provisions "
                         "them automatically: follow them in Provisioning.",
                         count=len(tenants), users=sum(len(row['users']) for row in rows))
@@ -712,6 +768,9 @@ class M365TenantImportWizard(models.TransientModel):
         options = []
         if self.mca_confirmed:
             options.append(_("the customers accepted the Microsoft Customer Agreement"))
+        if self.ingram_linked:
+            options.append(_("the customers accepted the reseller relationship of Ingram "
+                             "Micro"))
         if self.approve_orders:
             options.append(_("their subscription orders are approved"))
         if self.auto_provision:
