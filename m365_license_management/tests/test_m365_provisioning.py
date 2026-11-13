@@ -13,7 +13,7 @@ from odoo.tests import HttpCase, new_test_user, tagged
 
 from ..models.m365_tenant import M365GraphError
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, MODELS, USER_GROUP, USER_ID, USER_ID_2,
-                     FakeGraph, M365Common, http_response, map_tenants)
+                     FakeGraph, M365Common, graph_stub, http_response, map_tenants)
 
 # The purchase through Partner Center and GDAP are disabled: their tests are kept, skipped
 PC_DISABLED = "PARTNER CENTER (disabled): licenses are bought from Ingram Micro, no GDAP"
@@ -372,6 +372,94 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
             assign._verify()
         self.assertEqual(assign.verification_state, 'verified')
         self.assertIn('still provisioning', assign.verification_message)
+
+    def test_settled_failures_do_not_block(self):
+        """A failed license request needing nothing more does not block the provisioning:
+        the user is already as requested, or the license cannot be given to a user."""
+        Request = self.env['m365.license.request']
+        Request.create({'tenant_id': self.tenant.id, 'user_id': self.megan.id,
+                        'sku_id': self.sku.id, 'state': 'done',
+                        'executed_date': fields.Datetime.now()})
+        failed = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                                 'sku_id': self.sku.id, 'state': 'failed',
+                                 'error_message': 'HTTP 409 - Directory_ConcurrencyViolation'})
+        tenant = self.tenant
+        self.assertEqual(tenant.prov_licenses, 'failed')  # to retry
+        # Given meanwhile: nothing to do
+        self.adele.sku_ids = self.sku
+        tenant.invalidate_recordset()
+        self.assertEqual(tenant.prov_licenses, 'done')
+        # A license of the whole tenant never is a user's
+        self.adele.sku_ids = False
+        self.sku.applies_to = 'Company'
+        tenant.invalidate_recordset()
+        self.assertEqual(tenant.prov_licenses, 'done')
+        # A failed removal of a license the user does not have
+        self.sku.applies_to = 'User'
+        failed.request_type = 'remove'
+        tenant.invalidate_recordset()
+        self.assertEqual(tenant.prov_licenses, 'done')
+        self.assertEqual(failed.state, 'failed')  # kept, for the history
+
+    def test_verification_self_service_and_recheck(self):
+        """A free self-service license taken again is not a mismatch; a mismatch is checked
+        again later and logged only when its result changes."""
+        Request = self.env['m365.license.request']
+        long_ago = fields.Datetime.now() - timedelta(hours=2)
+        self.sku.sku_part_number = 'FLOW_FREE'
+        remove = Request.create({'tenant_id': self.tenant.id, 'user_id': self.adele.id,
+                                 'sku_id': self.sku.id, 'state': 'done',
+                                 'request_type': 'remove', 'executed_date': long_ago})
+        user_path = '/users/%s' % USER_ID
+        details = '/users/%s/licenseDetails' % USER_ID
+        graph = FakeGraph({user_path: {'id': USER_ID, 'accountEnabled': True},
+                           details: [{'skuId': GUID_A, 'servicePlans': []}]})
+        with patch(GRAPH_PATH, side_effect=graph):
+            remove._verify()
+        self.assertEqual(remove.verification_state, 'verified')
+        self.assertIn('self-service', remove.verification_message)
+        # A paid license still there long after: mismatch
+        self.sku.sku_part_number = 'SPE_E3'
+        remove.verification_state = False
+        with patch(GRAPH_PATH, side_effect=graph):
+            Request._cron_verify()
+        self.assertEqual(remove.verification_state, 'mismatch')
+        logs = self._logs('verify_license')
+        # Checked again after the delay: same result, not logged again
+        remove.verification_date = fields.Datetime.now() - timedelta(hours=7)
+        with patch(GRAPH_PATH, side_effect=graph):
+            Request._cron_verify()
+        self.assertEqual(remove.verification_state, 'mismatch')
+        self.assertEqual(self._logs('verify_license'), logs)
+        self.assertGreater(remove.verification_date,
+                           fields.Datetime.now() - timedelta(minutes=1))
+        # Not checked again before the delay
+        graph.routes[details] = []
+        with patch(GRAPH_PATH, side_effect=graph):
+            Request._cron_verify()
+        self.assertEqual(remove.verification_state, 'mismatch')
+        # Removed since: verified at the next check
+        remove.verification_date = fields.Datetime.now() - timedelta(hours=7)
+        with patch(GRAPH_PATH, side_effect=graph):
+            Request._cron_verify()
+        self.assertEqual(remove.verification_state, 'verified')
+
+    def test_auto_run_tells_the_administrator(self):
+        """A step waiting for a person gives the administrator one to-do, and the run goes
+        on."""
+        self.env['m365.license.request'].create({
+            'tenant_id': self.tenant.id, 'user_id': self.adele.id, 'sku_id': self.sku.id,
+            'state': 'failed', 'error_message': 'HTTP 409 - Directory_ConcurrencyViolation'})
+        self.tenant.write({'auto_provision': True, 'prov_user_id': self.admin.id})
+        for _run in range(2):
+            self.tenant.prov_next_run = False
+            with patch(GRAPH_PATH, side_effect=graph_stub):
+                self.env['m365.tenant']._cron_auto_provision()
+        self.assertTrue(self.tenant.auto_provision)
+        self.assertIn('License request(s) failed', self.tenant.prov_waiting)
+        activity = self.tenant.activity_ids.filtered(lambda a: 'Licenses' in a.summary)
+        self.assertEqual(activity.user_id, self.admin)
+        self.assertEqual(len(activity), 1)
 
     def test_tenant_license_not_for_users(self):
         self.sku.applies_to = 'Company'

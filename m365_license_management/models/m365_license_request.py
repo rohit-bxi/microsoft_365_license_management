@@ -205,13 +205,14 @@ class M365LicenseRequest(models.Model):
         return True
 
     def action_approve(self):
+        """Approve and run the submitted requests (a failed one is run again with Retry)."""
         self._check_admin()
         for rec in self:
-            if rec.state not in ('submitted', 'failed'):
+            if rec.state != 'submitted':
                 continue
             rec.write({'state': 'approved', 'approver_id': self.env.user.id})
             rec.sudo().activity_unlink(['mail.mail_activity_data_todo'])
-            rec._execute()
+            rec._execute_if_valid()
         return True
 
     def action_reject(self):
@@ -231,7 +232,7 @@ class M365LicenseRequest(models.Model):
         self._check_admin()
         for rec in self.filtered(lambda r: r.state == 'failed'):
             rec.state = 'approved'
-            rec._execute()
+            rec._execute_if_valid()
         return True
 
     def action_reset_draft(self):
@@ -251,6 +252,23 @@ class M365LicenseRequest(models.Model):
     # ------------------------------------------------------------------
     # Execution against Microsoft Graph
     # ------------------------------------------------------------------
+    def _execute_if_valid(self):
+        """Check the request again (things changed since it was submitted: license given
+        meanwhile, no license left, operations turned off...), then run it. Failures are
+        stored, never raised."""
+        self.ensure_one()
+        try:
+            self._validate_request()
+        except UserError as exc:
+            self.write({'state': 'failed', 'error_message': str(exc)})
+            action = (self.request_type if self.request_type in MFA_TYPES else
+                      'assign_license' if self.request_type == 'assign' else 'remove_license')
+            self.tenant_id._log(action, 'failed', _("%(ref)s - %(summary)s: %(err)s",
+                                                    ref=self.name, summary=self._summary(),
+                                                    err=exc), request=self)
+            return False
+        return self._execute()
+
     def _execute(self):
         """Run an approved request. Failures are stored, never raised."""
         self.ensure_one()
