@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+from datetime import timedelta
 from unittest.mock import patch
 
+from odoo import fields
 from odoo.exceptions import UserError
 from odoo.tests import new_test_user, tagged
 
@@ -146,6 +148,28 @@ class TestM365Sync(M365Common):
         synced = Tenant.union(*(call.args[0] for call in graph.call_args_list))
         self.assertEqual(synced, self.tenant | failing)
         self.assertFalse(draft.last_sync_date or disabled.last_sync_date)
+
+    def test_cron_backoff_of_failing_tenant(self):
+        """A tenant failing again and again is synchronised less often, until it works."""
+        Tenant = self.env['m365.tenant']
+        (Tenant.search([]) - self.tenant).sync_enabled = False
+        self.tenant.write({'state': 'error', 'failure_count': 4})  # wait 2 hours
+        log = self.tenant._log('sync_inventory', 'failed', 'HTTP 403')
+        broken = M365GraphError('HTTP 403 - Authorization_RequestDenied')
+        with patch(GRAPH_PATH, side_effect=broken) as graph:
+            Tenant._cron_sync_all()
+        graph.assert_not_called()
+        log.date = fields.Datetime.now() - timedelta(hours=3)
+        with patch(GRAPH_PATH, side_effect=broken) as graph:
+            Tenant._cron_sync_all()
+        graph.assert_called()
+        self.assertEqual(self.tenant.failure_count, 5)
+        # Never more than a day
+        self.tenant.failure_count = 20
+        self.assertEqual(self.tenant._sync_backoff_wait(), timedelta(hours=24))
+        # Connected again: synchronised every time
+        self.tenant.state = 'connected'
+        self.assertIsNone(self.tenant._sync_backoff_wait())
 
     # ------------------------------------------------------------------
     # Notifications

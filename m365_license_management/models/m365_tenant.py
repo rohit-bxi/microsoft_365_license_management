@@ -258,7 +258,10 @@ class M365Tenant(models.Model):
                 refreshed = True
                 self._get_access_token(force=True)
                 continue
-            if resp.status_code in (429, 503, 504) and retries < 4:
+            # 409 Directory_ConcurrencyViolation: another change of the tenant is being
+            # applied; Microsoft asks to wait briefly and retry (nothing was changed)
+            busy = resp.status_code == 409 and 'ConcurrencyViolation' in (resp.text or '')
+            if (resp.status_code in (429, 503, 504) or busy) and retries < 4:
                 retries += 1
                 try:
                     wait = int(resp.headers.get('Retry-After', 2))
@@ -445,11 +448,33 @@ class M365Tenant(models.Model):
                 subject=_("Microsoft 365 synchronisation failing - %s", self.name),
                 partner_ids=self._admin_partners().ids, subtype_xmlid='mail.mt_comment')
 
+    # A tenant failing again and again is synchronised less often: 1, 2, 4... hours after
+    # its last attempt, at most once a day, until it works again (Test Connection resets it)
+    BACKOFF_FROM = FAILURE_ALERT_THRESHOLD
+    BACKOFF_MAX = timedelta(hours=24)
+
+    def _sync_backoff_wait(self):
+        """Time to wait after the last failed synchronisation, or None."""
+        self.ensure_one()
+        if self.state != 'error' or self.failure_count < self.BACKOFF_FROM:
+            return None
+        return min(timedelta(hours=2 ** (self.failure_count - self.BACKOFF_FROM)),
+                   self.BACKOFF_MAX)
+
     @api.model
     def _cron_sync_all(self):
         tenants = self.search([('sync_enabled', '=', True),
                                ('state', 'in', ('connected', 'error'))])
+        now = fields.Datetime.now()
+        Log = self.env['m365.audit.log'].sudo()
         for tenant in tenants:
+            wait = tenant._sync_backoff_wait()
+            if wait:
+                last = Log.search([('tenant_id', '=', tenant.id),
+                                   ('action', '=', 'sync_inventory')], order='date desc',
+                                  limit=1).date
+                if last and last > now - wait:
+                    continue
             try:
                 tenant._sync_all_safe()
             except Exception:  # unexpected (DB, bug): keep the other tenants running
