@@ -20,6 +20,14 @@ CREDENTIAL_FIELDS = {'tenant_id', 'client_id', 'client_secret', 'authority_url',
 class M365GraphError(UserError):
     """Raised when authentication or a Microsoft Graph call fails."""
 
+    @property
+    def context(self):
+        """Shown by the web client as a user error (``Invalid Operation`` dialog), not as
+        a server error with a traceback: the client knows the exceptions by their full
+        class name, ``odoo.addons.m365_license_management...`` is not one of them, and it
+        falls back to ``exception_class`` (``serialize_exception`` sends this context)."""
+        return {'exception_class': 'odoo.exceptions.UserError'}
+
 
 class M365Tenant(models.Model):
     _name = 'm365.tenant'

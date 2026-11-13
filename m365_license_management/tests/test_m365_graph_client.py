@@ -82,6 +82,19 @@ class TestM365GraphClient(M365Common):
         gateway = http_response(502, b'<html>Bad gateway</html>')
         self.assertEqual(Tenant._format_error(gateway), 'HTTP 502: <html>Bad gateway</html>')
 
+    def test_errors_shown_as_user_errors(self):
+        """The web client shows the module errors in the user error dialog, without a
+        traceback (it does not know their class names)."""
+        from odoo.http import serialize_exception
+        from ..models.m365_ingram_account import M365IngramError, M365IngramTimeout
+        from ..models.m365_partner_account import M365PartnerCenterTimeout
+        for exc in (M365GraphError('x'), M365IngramError('x', 401), M365IngramTimeout('x'),
+                    M365PartnerCenterTimeout('x')):
+            data = serialize_exception(exc)
+            self.assertEqual(data['context'], {'exception_class': 'odoo.exceptions.UserError'},
+                             type(exc).__name__)
+            self.assertEqual(data['message'], 'x')
+
     # ------------------------------------------------------------------
     # Requests
     # ------------------------------------------------------------------
