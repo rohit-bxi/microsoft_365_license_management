@@ -177,7 +177,9 @@ class M365IngramOrder(models.Model):
         tenant, account = self.tenant_id, self.account_id
         if not self.line_ids:
             raise UserError(_("Add the plans to buy."))
-        if not tenant.filtered_domain(tenant._live_domain()):
+        if self.create_tenant:
+            self._validate_tenant_creation()
+        elif not tenant.filtered_domain(tenant._live_domain()):
             raise UserError(_("Create the tenant in Microsoft 365 first."))
         if len(self.name or '') > PO_MAX:
             raise UserError(_("The PO number %s is longer than the 18 characters Ingram Micro "
@@ -186,7 +188,9 @@ class M365IngramOrder(models.Model):
             raise UserError(_("An order has at most %s lines.", LINES_MAX))
         if len(self.line_ids.currency_id) > 1:
             raise UserError(_("All the lines of an order must be in the same currency."))
-        if account.require_relationship and not tenant.ingram_relationship:
+        # A tenant created by Ingram Micro gets its relationship with the tenant
+        if (account.require_relationship and not tenant.ingram_relationship
+                and not self.create_tenant):
             raise UserError(_(
                 "Confirm first that tenant %s has a reseller relationship with Ingram Micro "
                 "(Purchasing tab of the tenant): Ingram Micro can only order for the "
@@ -435,6 +439,8 @@ class M365IngramOrder(models.Model):
         if header:
             body['vmfAdditionalAttributes'] = [attr._payload(self) for attr in header]
         line_attrs = account.vmf_attribute_ids.filtered(lambda a: a.level == 'line')
+        # Vendor required info of the plans: the fields that create the tenant
+        required = self._creation_required_info() if self.create_tenant else {}
         for number, line in enumerate(self.line_ids, start=1):
             plan = line.plan_id
             vals = {'customerLineNumber': str(number), 'quantity': line.quantity}
@@ -445,6 +451,8 @@ class M365IngramOrder(models.Model):
             if line_attrs:
                 vals['vmfAdditionalAttributesLines'] = [attr._payload(self, line)
                                                         for attr in line_attrs]
+            if self.create_tenant:
+                vals.update(self._tenant_creation_line(line, required.get(plan.plan_id)))
             body['lines'].append(vals)
         return body
 

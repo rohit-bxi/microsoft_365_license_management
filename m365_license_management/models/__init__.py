@@ -37,3 +37,4 @@ from . import m365_ingram_order
 from . import m365_ingram_billing
 from . import m365_pc_order
 from . import m365_tenant_provisioning
+from . import m365_ingram_tenant

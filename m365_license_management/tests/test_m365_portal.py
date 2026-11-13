@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
+import copy
 import io
 import urllib.parse
-import uuid
+# import uuid  # PARTNER CENTER (disabled): mock of the customers created
 from unittest.mock import patch
 
 import openpyxl
 
-from odoo import Command
+from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import Request
 from odoo.tests import HttpCase, TransactionCase, new_test_user, tagged
@@ -14,8 +15,11 @@ from odoo.tests import HttpCase, TransactionCase, new_test_user, tagged
 from ..models import m365_tenant_portal
 from ..models.m365_tenant import M365GraphError
 from .common import ADMIN_GROUP, GRAPH_PATH, MODELS
+from .test_m365_ingram import IM_PATH, ORDERS, FakeIngram
+from .test_m365_ingram_tenant import LOOKUP, REQUIRED_INFO, VRI
 
-PC_PATH = MODELS + '.m365_partner_account.M365PartnerAccount._pc_request'
+# PARTNER CENTER (disabled)
+# PC_PATH = MODELS + '.m365_partner_account.M365PartnerAccount._pc_request'
 PORTAL_GROUP = 'm365_license_management.group_m365_portal'
 PORTAL_GROUPS = 'base.group_portal,' + PORTAL_GROUP
 URL = '/my/m365/tenants'
@@ -30,33 +34,46 @@ NEW = {'name': 'Portal Adatum', 'domain': 'PortalAdatum', 'contact_first_name': 
        'contact_last_name': 'Vance', 'contact_email': 'adele.vance@adatum.com',
        'contact_phone': '+91 80 4000 1000', 'address_line1': '1 MG Road', 'city': 'Bengaluru',
        'address_state': 'KA', 'postal_code': '560001', 'country_id': 'IN',
-       'organization_registration_number': 'U72900KA2020PTC000000', 'culture': 'en-IN',
-       'language': 'en'}
+       'requested_subscriptions': 'Microsoft 365 E3 (NCE COM MTH) = 5',
+       'mca_first_name': 'Adele', 'mca_last_name': 'Vance',
+       'mca_email': 'adele.vance@adatum.com'}
+# PARTNER CENTER (disabled): 'organization_registration_number', 'culture', 'language'
+
 EXISTING_HEADER = ('Tenant Name,Primary Domain,Directory (Tenant) ID,Application (Client) ID,'
                    'Client Secret\n')
-NEW_HEADER = ('CompanyName,Domain,FirstName,LastName,Email,AddressLine1,City,PostalCode,'
-              'Country,OrganizationRegistrationNumber\n')
+NEW_HEADER = ('CompanyName,Domain,FirstName,LastName,Email,PhoneNumber,AddressLine1,City,'
+              'State,PostalCode,Country,Subscriptions,AgreementFirstName,AgreementLastName,'
+              'AgreementEmail\n')
+NEW_ROW = ('Bulk C,bulkc,Adele,Vance,adele@c.com,+91 80 1,1 MG Road,Bengaluru,KA,560001,IN,'
+           'Microsoft 365 E3 (NCE COM MTH) = 5,Adele,Vance,adele@c.com\n')
 
 
-def partner_center(domain_status=404):
-    """Partner Center mock: domain available, address verified, customer created."""
-    calls = []
+def ingram():
+    """Ingram Micro API: vendor required info of the plan, order accepted."""
+    return FakeIngram({('POST', VRI): copy.deepcopy(REQUIRED_INFO),
+                       ('POST', ORDERS): {'confirmationNumber': 'C-1'}})
 
-    def pc_request(account, method, path, json_body=None, request_id=None, expect=()):
-        calls.append((method, path))
-        if path.startswith('/v1/domains/'):
-            return domain_status, {}
-        if path == '/v1/validations/address':
-            return 200, {'status': 'VerifiedShippable'}
-        if path == '/v1/customers':
-            domain = json_body['CompanyProfile']['Domain']
-            customer_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, domain))
-            return 201, {'id': customer_id,
-                         'companyProfile': {'tenantId': customer_id, 'domain': domain},
-                         'userCredentials': {'userName': 'admin', 'password': 'Temp=Pass1'}}
-        raise AssertionError('Unexpected call %s %s' % (method, path))
 
-    return calls, pc_request
+# PARTNER CENTER (disabled): mock of the creation through Partner Center
+# def partner_center(domain_status=404):
+#     """Partner Center mock: domain available, address verified, customer created."""
+#     calls = []
+#
+#     def pc_request(account, method, path, json_body=None, request_id=None, expect=()):
+#         calls.append((method, path))
+#         if path.startswith('/v1/domains/'):
+#             return domain_status, {}
+#         if path == '/v1/validations/address':
+#             return 200, {'status': 'VerifiedShippable'}
+#         if path == '/v1/customers':
+#             domain = json_body['CompanyProfile']['Domain']
+#             customer_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, domain))
+#             return 201, {'id': customer_id,
+#                          'companyProfile': {'tenantId': customer_id, 'domain': domain},
+#                          'userCredentials': {'userName': 'admin', 'password': 'Temp=Pass1'}}
+#         raise AssertionError('Unexpected call %s %s' % (method, path))
+#
+#     return calls, pc_request
 
 
 def graph_ok(method, path, params=None, json_body=None, paginate=False):
@@ -83,6 +100,14 @@ class M365PortalCase(TransactionCase):
             'name': 'BXI CSP', 'partner_tenant_id': 'partner.onmicrosoft.com',
             'client_id': 'pc-app', 'client_secret': 'pc-secret', 'default_culture': 'en-IN',
         })
+        # New tenants are created by Ingram Micro with the order of their subscriptions
+        cls.env['m365.ingram.account'].search([]).write({'active': False})
+        ingram = cls.env['m365.ingram.account'].create({
+            'name': 'Ingram Micro India', 'client_id': 'im-cid', 'client_secret': 'im-secret',
+            'customer_number': '20-222222', 'country_code': 'IN'})
+        cls.env['m365.ingram.plan'].create({
+            'account_id': ingram.id, 'plan_id': '438292',
+            'name': 'Microsoft 365 E3 (NCE COM MTH)', 'ingram_part_number': 'MS-E3-M'})
         cls.owner = new_test_user(cls.env, 'm365_portal_owner', groups=PORTAL_GROUPS)
         cls.other = new_test_user(cls.env, 'm365_portal_other', groups=PORTAL_GROUPS)
         cls.plain = new_test_user(cls.env, 'm365_portal_plain', groups='base.group_portal')
@@ -203,35 +228,35 @@ class TestM365Portal(M365PortalCase):
 
     def test_form_values_new(self):
         Tenant = self._portal()
-        vals, errors, others = Tenant._portal_form_values('new', dict(NEW, culture=''))
+        vals, errors, others = Tenant._portal_form_values('new', NEW)
         self.assertEqual((errors, others), ({}, []))
         self.assertEqual((vals['domain'], vals['country_id']),
                          ('portaladatum.onmicrosoft.com', self.env.ref('base.in').id))
-        # Blank culture: the default of the Partner Center account
-        self.assertNotIn('culture', vals)
-        self.assertEqual(Tenant._portal_form_defaults('new'),
-                         {'culture': 'en-IN', 'language': 'en'})
-        # The checks of the Check button
+        # The Customer Agreement, accepted by the person of the form (today by default)
+        self.assertEqual((vals['mca_accepted'], vals['mca_date']),
+                         (True, fields.Date.context_today(Tenant)))
+        # PARTNER CENTER (disabled): culture and language of the Partner Center account
+        self.assertEqual(Tenant._portal_form_defaults('new'), {})
+        # The checks of the data
         vals, errors, others = Tenant._portal_form_values('new', dict(
-            NEW, contact_email='not-an-email', contact_first_name='',
-            organization_registration_number='', country_id='XX'))
+            NEW, contact_email='not-an-email', contact_first_name='', country_id='XX'))
         self.assertEqual(set(errors), {'contact_first_name', 'country_id'})
         self.assertEqual(others, ['"not-an-email" is not a valid email address.'])
         vals, errors, others = Tenant._portal_form_values(
-            'new', dict(NEW, organization_registration_number='', domain='bad_domain'))
-        self.assertEqual(len(others), 2)
-        self.assertIn('Microsoft requires the organization registration number for India.',
-                      others)
+            'new', dict(NEW, domain='bad_domain', mca_email=''))
+        self.assertFalse(vals['mca_accepted'])
+        self.assertEqual(len(others), 1)
+        self.assertIn('Domain "bad_domain.onmicrosoft.com" is not valid', others[0])
 
     def test_new_tenant(self):
         Tenant = self._portal()
         vals, _errors, _others = Tenant._portal_form_values('new', NEW)
         tenant = Tenant._portal_create([dict(vals, tenant_type='new')])
-        self.assertEqual((tenant.partner_account_id, tenant.culture, tenant.provision_state),
-                         (self.account, 'en-IN', 'draft'))
+        self.assertEqual((tenant.partner_account_id, tenant.creation_channel,
+                          tenant.provision_state), (self.account, 'ingram', 'draft'))
+        self.assertTrue(tenant.mca_accepted)
         self.assertEqual(tenant._portal_operations(), {'edit', 'check', 'remove'})
-        calls, pc_request = partner_center(domain_status=200)
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=TENANT_3):
             tenant._portal_check()
         self.assertEqual(tenant.provision_state, 'draft')
         self.assertIn('already used', tenant.provision_error)
@@ -242,28 +267,32 @@ class TestM365Portal(M365PortalCase):
         self.assertEqual((errors, others), ({}, []))
         tenant._portal_save(vals)
         self.assertEqual(tenant.domain, 'portal-adatum-2.onmicrosoft.com')
-        calls, pc_request = partner_center()
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=False):
             tenant._portal_check()
         self.assertEqual((tenant.provision_state, tenant._portal_status()),
                          ('ready', ('Ready', 'primary')))
-        # Created by the scheduled action of the backend; the audit log names the user
-        self.assertEqual(tenant._portal_create_in_microsoft(), tenant)
-        self.assertEqual((tenant.provision_state, tenant.queued_by), ('queued', self.owner))
-        self.assertTrue(tenant._portal_busy())
+        # Create: the order is sent to Ingram Micro straight away; the audit log names
+        # the user
+        fake = ingram()
+        with patch(IM_PATH, side_effect=fake):
+            self.assertEqual(tenant._portal_create_in_microsoft(), tenant)
+        order = tenant.sudo().ingram_creation_order_id
+        self.assertEqual((tenant.provision_state, tenant.queued_by, order.state),
+                         ('queued', self.owner, 'sent'))
+        self.assertEqual(len(fake.bodies('POST', ORDERS)), 1)
+        self.assertFalse(tenant._portal_busy())  # Ingram Micro may take hours
         self.assertEqual(tenant._portal_operations(), set())
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        # Created once its domain exists in Microsoft 365
+        with patch(LOOKUP, return_value=TENANT_3):
             self.env['m365.tenant']._cron_provision_tenants()
-        self.assertEqual((tenant.provision_state, tenant.admin_username, tenant.state),
-                         ('done', 'admin@portal-adatum-2.onmicrosoft.com', 'draft'))
+        self.assertEqual((tenant.provision_state, tenant.tenant_id, tenant.state),
+                         ('done', TENANT_3, 'draft'))
         log = self.env['m365.audit.log'].search([('tenant_id', '=', tenant.id),
                                                  ('action', '=', 'provision_tenant')])
         self.assertEqual((log.status, log.user_id), ('success', self.owner))
-        # Tested once its app registration is entered
-        self.assertEqual(tenant._portal_operations(), {'connect', 'password'})
-        tenant._portal_clear_password()
-        self.assertFalse(tenant.sudo().admin_password)
-        # Connected with its app registration
+        # Connected once its app registration is entered (no password: Ingram Micro
+        # gives the admin user)
+        self.assertEqual(tenant._portal_operations(), {'connect'})
         vals, errors, _others = Tenant._portal_form_values(
             'connection', {'client_id': CLIENT, 'client_secret': 'new-secret'}, tenant)
         self.assertEqual(errors, {})
@@ -315,9 +344,8 @@ class TestM365Portal(M365PortalCase):
         cron = self.env.ref('m365_license_management.ir_cron_m365_portal_jobs')
         Trigger = self.env['ir.cron.trigger']
         triggers = Trigger.search_count([('cron_id', '=', cron.id)])
-        _calls, pc_request = partner_center()
         with patch.object(m365_tenant_portal, 'PORTAL_JOB_BATCH', 2), \
-                patch(PC_PATH, autospec=True, side_effect=pc_request), \
+                patch(LOOKUP, return_value=False), \
                 patch(GRAPH_PATH, side_effect=graph_ok):
             self.env['m365.tenant']._cron_portal_jobs()
             self.assertEqual(new.mapped('provision_state'), ['ready', 'ready', 'draft'])
@@ -349,13 +377,15 @@ class TestM365Portal(M365PortalCase):
         self.env['ir.config_parameter'].sudo().set_param('m365.portal_import_max_rows', '1')
         with self.assertRaisesRegex(UserError, 'The file has 2 tenants: at most 1'):
             Tenant._portal_parse(wizard)
-        # New tenants: the Partner Center account of the portal
-        content = (NEW_HEADER + 'Bulk C,bulkc,Adele,Vance,adele@c.com,1 MG Road,Bengaluru,'
-                                '560001,IN,U72900KA2020PTC000000\n').encode()
+        # New tenants: the shared app account of the portal; the Customer Agreement of
+        # the Agreement columns
+        content = (NEW_HEADER + NEW_ROW).encode()
         wizard = Tenant._portal_import_wizard('new', content, 'Customers.csv')
         rows = Tenant._portal_parse(wizard)
         self.assertEqual((rows[0]['errors'], rows[0]['vals']['partner_account_id']),
                          ([], self.account.id))
+        tenant = Tenant._portal_create([rows[0]['vals']])
+        self.assertTrue(tenant.mca_accepted and tenant.mca_date)
         content, filename = Tenant._portal_import_template('new')
         self.assertEqual(filename, 'm365_customers_template.xlsx')
         sheet = openpyxl.load_workbook(io.BytesIO(content)).active
@@ -438,42 +468,40 @@ class TestM365PortalHttp(HttpCase, M365PortalCase):
         self._login()
         resp = self._open(URL + '/new?tenant_type=new')
         self.assertIn('Save & Check', resp.text)
-        _calls, pc_request = partner_center()
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        self.assertIn('Subscriptions to Buy', resp.text)
+        with patch(LOOKUP, return_value=False):
             resp = self._post(URL + '/new', dict(NEW, tenant_type='new'))
         tenant = self._tenants()
         self.assertRedirect(resp, tenant._portal_url())
-        self.assertEqual((tenant.domain, tenant.provision_state),
-                         ('portaladatum.onmicrosoft.com', 'ready'))
+        self.assertEqual((tenant.domain, tenant.provision_state, tenant.mca_accepted),
+                         ('portaladatum.onmicrosoft.com', 'ready', True))
         self.assertIn('The tenant is ready', self._open(tenant._portal_url()).text)
         # Steps not available in the current status are refused
         resp = self._post(tenant._portal_url('/password'))
         self.assertRedirect(resp, tenant._portal_url())
         self.assertIn('not available', self._open(tenant._portal_url()).text)
-        resp = self._post(tenant._portal_url('/create'))
+        with patch(IM_PATH, side_effect=ingram()):
+            resp = self._post(tenant._portal_url('/create'))
         self.assertRedirect(resp, tenant._portal_url())
         self.assertEqual((tenant.provision_state, tenant.queued_by), ('queued', self.owner))
+        self.assertIn('Ingram Micro is creating the tenant',
+                      self._open(tenant._portal_url()).text)
         self.assertEqual(self._open(tenant._portal_url('/edit')).status_code, 303)
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=TENANT_3):
             self.env['m365.tenant']._cron_provision_tenants()
-        page = self._open(tenant._portal_url()).text
-        self.assertIn('Temp=Pass1', page)
-        self.assertRedirect(self._post(tenant._portal_url('/password')), tenant._portal_url())
-        self.assertFalse(tenant.sudo().admin_password)
-        self.assertNotIn('Temp=Pass1', self._open(tenant._portal_url()).text)
+        self.assertEqual((tenant.provision_state, tenant.tenant_id), ('done', TENANT_3))
+        self.assertEqual(self._open(tenant._portal_url()).status_code, 200)
 
     def test_edit_new_tenant(self):
         self._login()
-        _calls, pc_request = partner_center(domain_status=200)
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=TENANT_3):
             self._post(URL + '/new', dict(NEW, tenant_type='new'))
         tenant = self._tenants()
         self.assertEqual(tenant.provision_state, 'draft')
         self.assertIn('already used in Microsoft 365', self._open(tenant._portal_url()).text)
         self.assertIn('portaladatum.onmicrosoft.com',
                       self._open(tenant._portal_url('/edit')).text)
-        _calls, pc_request = partner_center()
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=False):
             resp = self._post(tenant._portal_url('/edit'), dict(NEW, domain='portaladatum2'))
         self.assertRedirect(resp, tenant._portal_url())
         self.assertEqual((tenant.domain, tenant.provision_state),
@@ -505,8 +533,7 @@ class TestM365PortalHttp(HttpCase, M365PortalCase):
 
     def test_bulk_new(self):
         self._login()
-        content = (NEW_HEADER + 'Bulk C,bulkc,Adele,Vance,adele@c.com,1 MG Road,Bengaluru,'
-                                '560001,IN,U72900KA2020PTC000000\n')
+        content = NEW_HEADER + NEW_ROW
         resp = self._post(URL + '/import', {'tenant_type': 'new'},
                           files={'import_file': ('Customers.csv', content, 'text/csv')})
         self.assertIn('All rows are valid', resp.text)
@@ -515,15 +542,15 @@ class TestM365PortalHttp(HttpCase, M365PortalCase):
         self.assertEqual((tenant.tenant_type, tenant.partner_account_id, tenant.portal_job),
                          ('new', self.account, 'check'))
         self.assertIn('Checking…', self._open(URL).text)
-        _calls, pc_request = partner_center()
-        with patch(PC_PATH, autospec=True, side_effect=pc_request):
+        with patch(LOOKUP, return_value=False):
             self.env['m365.tenant']._cron_portal_jobs()
-        self.assertEqual(tenant.provision_state, 'ready')
-        # Create Selected (the other user's tenant is ignored)
-        resp = self._post(URL + '/batch', {'operation': 'create',
-                                           'tenant_ids': [tenant.id, self.other_tenant.id]})
+        self.assertEqual(tenant.provision_state, 'ready', tenant.provision_error)
+        # Create Selected (the other user's tenant is ignored): ordered from Ingram Micro
+        with patch(IM_PATH, side_effect=ingram()):
+            resp = self._post(URL + '/batch', {'operation': 'create',
+                                               'tenant_ids': [tenant.id, self.other_tenant.id]})
         self.assertRedirect(resp, URL)
-        self.assertEqual(tenant.provision_state, 'queued')
+        self.assertEqual(tenant.provision_state, 'queued', tenant.provision_error)
         # The template of the files
         resp = self._open(URL + '/import/template?tenant_type=existing')
         self.assertIn('spreadsheetml', resp.headers['Content-Type'])

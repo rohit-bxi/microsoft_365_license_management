@@ -44,10 +44,20 @@
                     <button name="action_check" type="object" string="Check Again"
                             invisible="tenant_type != 'new' or provision_state != 'ready'"
                             groups="m365_license_management.group_m365_admin"/>
+                    <!-- PARTNER CENTER (disabled)
                     <button name="action_create" type="object" string="Create in Microsoft 365"
                             class="btn-primary"
                             invisible="tenant_type != 'new' or provision_state != 'ready'"
                             confirm="Create this tenant in Microsoft 365? A real tenant is created and it cannot be deleted from Odoo."
+                            groups="m365_license_management.group_m365_admin"/>
+                    -->
+                    <button name="action_create" type="object" string="Create in Microsoft 365"
+                            class="btn-primary"
+                            invisible="tenant_type != 'new' or provision_state != 'ready'"
+                            confirm="Order the Subscriptions to Buy from Ingram Micro, which creates this tenant? The order is billed to your Ingram Micro account and the tenant cannot be deleted from Odoo."
+                            groups="m365_license_management.group_m365_admin"/>
+                    <button name="action_check_ingram_creation" type="object" string="Check Creation"
+                            invisible="tenant_type != 'new' or provision_state != 'queued'"
                             groups="m365_license_management.group_m365_admin"/>
                     <button name="action_create" type="object" string="Retry" class="btn-primary"
                             invisible="tenant_type != 'new' or provision_state != 'failed'"
@@ -121,26 +131,38 @@
                          invisible="not provision_error or provision_state not in ('draft', 'failed')">
                         <field name="provision_error" nolabel="1" class="d-inline"/>
                     </div>
+                    <!-- PARTNER CENTER (disabled)
                     <div class="alert alert-warning" role="alert"
                          invisible="provision_state != 'failed' or not pc_request_id">
                         Partner Center gave no answer, so the tenant may have been created.
                         <b>Retry</b> sends the same request ID: Microsoft then returns the
                         tenant it created instead of creating a second one.
                     </div>
+                    -->
                     <div class="alert alert-warning" role="alert" invisible="config_state != 'failed'">
                         <strong>Configuration failed:</strong>
                         <field name="config_error" nolabel="1" class="d-inline"/>
                     </div>
+                    <!-- PARTNER CENTER (disabled)
                     <div class="alert alert-info" role="alert" invisible="provision_state != 'queued'">
                         The tenant is being created in Microsoft 365. Reload the page in a
                         minute.
                     </div>
+                    -->
+                    <div class="alert alert-info" role="alert" invisible="provision_state != 'queued'">
+                        Ingram Micro creates the tenant with the order
+                        <field name="ingram_creation_order_id" nolabel="1" class="d-inline"
+                               groups="m365_license_management.group_m365_admin"/>,
+                        once it is approved. Odoo sees the tenant when its domain exists in
+                        Microsoft 365: checked every hour, or press <b>Check Creation</b>.
+                        Ingram Micro gives the initial admin user.
+                    </div>
                     <div class="alert alert-info" role="alert"
                          invisible="provision_state != 'done' or state != 'draft' or consent_expiry">
                         The tenant is created in Microsoft 365. To manage its licenses, press
-                        <b>Grant Consent</b> and sign in with its initial admin user: the
-                        tenant is then connected through the shared app of the Partner Center
-                        account. Or enter the client ID and secret of an app registration of
+                        <b>Grant Consent</b> and sign in with its initial admin user (given by
+                        Ingram Micro): the tenant is then connected through the shared app.
+                        Or enter the client ID and secret of an app registration of
                         the tenant (<i>Entra App Registration</i> tab) and press
                         <b>Test Connection</b>.
                     </div>
@@ -172,19 +194,50 @@
                         <page string="Tenant Creation" name="creation" invisible="tenant_type != 'new'"
                               groups="m365_license_management.group_m365_admin">
                             <group>
+                                <group string="Ingram Micro">
+                                    <field name="requested_subscriptions"
+                                           required="tenant_type == 'new' and provision_state == 'draft'"
+                                           readonly="provision_state in ('queued', 'done')"
+                                           placeholder="Microsoft 365 Business Basic = 10"/>
+                                    <field name="mca_accepted" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="mca_first_name" invisible="not mca_accepted"
+                                           required="mca_accepted" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="mca_last_name" invisible="not mca_accepted"
+                                           required="mca_accepted" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="mca_email" widget="email" invisible="not mca_accepted"
+                                           required="mca_accepted" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="mca_date" invisible="not mca_accepted"
+                                           required="mca_accepted" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="ingram_creation_order_id" invisible="not ingram_creation_order_id"/>
+                                    <field name="partner_account_id" string="Shared App Account"
+                                           invisible="not partner_account_id"
+                                           readonly="provision_state in ('queued', 'done')"/>
+                                    <!-- Anchor of the views stored before 19.0.1.10.1 (upgrade) -->
+                                    <field name="enable_gdap" invisible="1"/>
+                                    <div colspan="2" class="text-muted">
+                                        Ingram Micro creates the tenant with the order of the
+                                        Subscriptions to Buy, with the acceptance of the
+                                        Microsoft Customer Agreement and the address below.
+                                    </div>
+                                </group>
+                                <!-- PARTNER CENTER (disabled)
                                 <group string="Partner Center">
                                     <field name="partner_account_id" required="tenant_type == 'new'"
                                            readonly="provision_state in ('queued', 'done')"/>
                                     <field name="organization_registration_number" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="enable_gdap" readonly="provision_state in ('queued', 'done')"/>
                                 </group>
+                                -->
                                 <group string="Contact">
                                     <field name="contact_first_name" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="contact_last_name" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="contact_email" widget="email" readonly="provision_state in ('queued', 'done')"/>
-                                    <field name="contact_phone" widget="phone" readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="contact_phone" widget="phone" required="tenant_type == 'new'"
+                                           readonly="provision_state in ('queued', 'done')"/>
+                                    <!-- PARTNER CENTER (disabled)
                                     <field name="culture" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="language" readonly="provision_state in ('queued', 'done')"/>
+                                    -->
                                 </group>
                                 <group string="Registered Address">
                                     <field name="address_line1" readonly="provision_state in ('queued', 'done')"/>
@@ -194,13 +247,17 @@
                                     <field name="postal_code" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="country_id" options="{'no_create': True}"
                                            readonly="provision_state in ('queued', 'done')"/>
+                                    <!-- PARTNER CENTER (disabled)
                                     <field name="address_status" invisible="not address_status"/>
                                     <field name="address_confirmed" readonly="provision_state in ('queued', 'done')"/>
+                                    -->
                                 </group>
                                 <group string="Result" invisible="provision_state != 'done'">
-                                    <field name="customer_id"/>
+                                    <field name="tenant_id" readonly="1"/>
                                     <field name="created_date"/>
                                     <field name="queued_by"/>
+                                    <!-- PARTNER CENTER (disabled): customer and admin user returned by Partner Center
+                                    <field name="customer_id"/>
                                     <field name="admin_username" widget="CopyClipboardChar"/>
                                     <field name="admin_password" widget="CopyClipboardChar"
                                            invisible="not admin_password"/>
@@ -208,6 +265,7 @@
                                             string="Remove Password from Odoo" class="btn-link"
                                             colspan="2" invisible="not admin_password"
                                             confirm="Remove the initial admin password from Odoo? Hand it over to the customer first."/>
+                                    -->
                                 </group>
                             </group>
                         </page>
@@ -420,6 +478,16 @@
                         <page string="Setup Guide" name="guide">
                             <div class="o_m365_guide">
                                 <h4>New tenants</h4>
+                                <p>Choose the type <b>New</b> to have the tenant created by
+                                   Ingram Micro: enter the initial domain (e.g.
+                                   contoso.onmicrosoft.com), a contact, the registered address,
+                                   the Subscriptions to Buy and who accepted the Microsoft
+                                   Customer Agreement, press <b>Check</b>, then <b>Create in
+                                   Microsoft 365</b>: the subscriptions are ordered from Ingram
+                                   Micro, which creates the tenant. Once Odoo sees it in
+                                   Microsoft 365, its directory ID is filled in: connect it with
+                                   the shared app or with its own app registration, as below.</p>
+                                <!-- PARTNER CENTER (disabled)
                                 <p>Choose the type <b>New</b> to create the tenant through
                                    Microsoft Partner Center (<i>Partner Center Account</i> menu):
                                    enter the initial domain (e.g. contoso.onmicrosoft.com), a
@@ -427,11 +495,13 @@
                                    <b>Create in Microsoft 365</b>. Once it is created, its
                                    directory ID is filled in: connect it with the shared app or
                                    with its own app registration, as below.</p>
+                                -->
                                 <h4>Shared app (recommended)</h4>
-                                <p>One multi-tenant app of your partner tenant connects every
+                                <p>One multi-tenant app of your own tenant connects every
                                    tenant, without app registration in each one. Configure it
-                                   once on the <i>Partner Center Account</i> (application ID,
-                                   secret, redirect URI and Graph permissions). Then, on each
+                                   once in <i>Configuration › Tenants › Shared App</i>
+                                   (application ID, secret, redirect URI and Graph
+                                   permissions). Then, on each
                                    tenant, press <b>Grant Consent</b>: a Global Administrator of
                                    the tenant signs in on the Microsoft page that opens (or the
                                    consent link sent to them) and accepts. Odoo connects the
@@ -543,8 +613,8 @@
             <p class="o_view_nocontent_smiling_face">Connect your first Microsoft 365 tenant</p>
             <p>Type <b>Existing</b>: register an application in Microsoft Entra ID and enter its
                credentials to start synchronising the license inventory.</p>
-            <p>Type <b>New</b>: create the tenant through Microsoft Partner Center first, then
-               connect it.</p>
+            <p>Type <b>New</b>: Ingram Micro creates the tenant with the order of its
+               subscriptions, then connect it.</p>
         </field>
     </record>
 </odoo>

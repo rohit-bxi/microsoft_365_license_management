@@ -148,15 +148,17 @@
             </div>
 
             <div t-if="tenant.portal_job == 'check'" class="alert alert-info" role="status">
-                The data, the domain and the address are being checked with Microsoft. This
-                page refreshes itself.
+                The data and the domain are being checked with Microsoft. This page
+                refreshes itself.
             </div>
             <div t-if="tenant.portal_job == 'test'" class="alert alert-info" role="status">
                 The connection is being tested. This page refreshes itself.
             </div>
+            <!-- PARTNER CENTER (disabled)
             <div t-if="tenant.provision_state == 'queued'" class="alert alert-info" role="status">
                 The tenant is being created in Microsoft 365. This page refreshes itself.
             </div>
+            -->
             <div t-if="tenant.provision_error and tenant.provision_state in ('draft', 'failed') and not tenant.portal_job"
                  class="alert alert-danger" role="alert">
                 <div class="fw-bold mb-1">
@@ -165,14 +167,21 @@
                 </div>
                 <div style="white-space: pre-line;" t-out="tenant.provision_error"/>
             </div>
+            <!-- PARTNER CENTER (disabled)
             <div t-if="tenant.provision_state == 'failed' and tenant.pc_request_id" class="alert alert-warning" role="alert">
                 Microsoft gave no answer, so the tenant may have been created. <b>Retry</b> sends
                 the same request: Microsoft then returns the tenant it created instead of
                 creating a second one.
             </div>
+            -->
             <div t-if="tenant.provision_state == 'ready' and not tenant.portal_job" class="alert alert-success" role="status">
-                The data, the domain and the address are valid. <b>Create in Microsoft 365</b>
-                creates the tenant and its first global administrator.
+                The data and the domain are valid. <b>Create in Microsoft 365</b> orders the
+                Subscriptions to Buy from Ingram Micro, which creates the tenant.
+            </div>
+            <div t-if="tenant.provision_state == 'queued'" class="alert alert-info" role="status">
+                Ingram Micro is creating the tenant. It appears here as created once its domain
+                exists in Microsoft 365 (checked every hour). Ingram Micro gives the initial
+                admin user.
             </div>
             <div t-if="tenant.state == 'error' and tenant.last_error and not tenant.portal_job" class="alert alert-danger" role="alert">
                 <b>Connection error:</b> <span t-out="tenant.last_error"/>
@@ -237,6 +246,7 @@
                 </t>
             </div>
 
+            <!-- PARTNER CENTER (disabled): initial admin user returned by Partner Center
             <div t-if="'password' in m365_operations" class="alert alert-warning" role="alert">
                 <h5 class="alert-heading">Sign-in of the new tenant</h5>
                 <div>Admin user: <code t-out="tenant.admin_username"/></div>
@@ -251,6 +261,7 @@
                     <t t-set="btn_class" t-value="'btn-warning'"/>
                 </t>
             </div>
+            -->
 
             <div class="row g-4">
                 <div t-if="tenant.tenant_type == 'new'" class="col-lg-6">
@@ -273,14 +284,20 @@
                             </div>
                             <div t-out="tenant.country_id.name"/>
                         </dd>
+                        <!-- PARTNER CENTER (disabled)
                         <t t-if="tenant.organization_registration_number">
                             <dt class="col-sm-5">Registration Number</dt>
                             <dd class="col-sm-7" t-out="tenant.organization_registration_number"/>
                         </t>
                         <dt class="col-sm-5">Culture / Language</dt>
                         <dd class="col-sm-7"><t t-out="tenant.culture"/> / <t t-out="tenant.language"/></dd>
+                        -->
+                        <dt class="col-sm-5">Subscriptions to Buy</dt>
+                        <dd class="col-sm-7" t-out="tenant.requested_subscriptions or '-'"/>
                         <t t-if="tenant.provision_state == 'done'">
+                            <!-- PARTNER CENTER (disabled)
                             <dt class="col-sm-5">Customer ID</dt><dd class="col-sm-7"><code t-out="tenant.customer_id"/></dd>
+                            -->
                             <dt class="col-sm-5">Created On</dt>
                             <dd class="col-sm-7" t-out="tenant.created_date" t-options='{"widget": "datetime"}'/>
                         </t>

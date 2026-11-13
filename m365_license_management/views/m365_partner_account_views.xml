@@ -1,20 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Partner Center account -->
+    <!-- Partner Center account: only its shared app is used (the Partner Center parts are
+         disabled, marked PARTNER CENTER (disabled)) -->
     <record id="view_m365_partner_account_list" model="ir.ui.view">
         <field name="name">m365.partner.account.list</field>
         <field name="model">m365.partner.account</field>
         <field name="arch" type="xml">
-            <list string="Partner Center Accounts" decoration-danger="state == 'error'">
+            <list string="Shared App">
                 <field name="name"/>
-                <field name="partner_name"/>
-                <field name="partner_tenant_id" optional="hide"/>
+                <field name="graph_client_id"/>
                 <field name="tenant_count" string="Tenants"/>
                 <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+                <!-- PARTNER CENTER (disabled)
+                <field name="partner_name"/>
+                <field name="partner_tenant_id" optional="hide"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'connected'"
                        decoration-danger="state == 'error'"
                        decoration-info="state == 'draft'"/>
+                -->
             </list>
         </field>
     </record>
@@ -23,11 +27,13 @@
         <field name="name">m365.partner.account.form</field>
         <field name="model">m365.partner.account</field>
         <field name="arch" type="xml">
-            <form string="Partner Center Account">
+            <form string="Shared App">
                 <header>
+                    <!-- PARTNER CENTER (disabled): hidden, anchor of other views -->
                     <button name="action_test_connection" type="object" string="Test Connection"
-                            class="btn-primary"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"/>
+                            class="btn-primary" invisible="1"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,connected"
+                           invisible="1"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
@@ -40,22 +46,23 @@
                             invisible="active"/>
                     <div class="oe_title">
                         <label for="name"/>
-                        <h1><field name="name" placeholder="e.g. BXI Technologies CSP"/></h1>
+                        <h1><field name="name" placeholder="e.g. BXI Technologies"/></h1>
                     </div>
-                    <div class="alert alert-danger" role="alert" invisible="state != 'error'">
+                    <!-- PARTNER CENTER (disabled): error of Test Connection -->
+                    <div class="alert alert-danger" role="alert" invisible="1">
                         <strong>Last error:</strong>
                         <field name="last_error" nolabel="1" class="d-inline"/>
                     </div>
                     <group>
-                        <group string="App Registration (App-only)">
+                        <!-- PARTNER CENTER (disabled): app registration of Partner Center
+                             and defaults of the customers created there; hidden -->
+                        <group string="App Registration (App-only)" invisible="1">
                             <field name="partner_tenant_id"/>
                             <field name="client_id"/>
                             <field name="client_secret" password="True"/>
                             <field name="partner_name" invisible="not partner_name"/>
-                            <field name="company_id" groups="base.group_multi_company"/>
-                            <field name="active" invisible="1"/>
                         </group>
-                        <group string="New Customers">
+                        <group string="New Customers" invisible="1">
                             <field name="default_culture"/>
                             <field name="default_language"/>
                             <field name="enable_gdap"/>
@@ -64,18 +71,22 @@
                             <field name="graph_client_id"/>
                             <field name="graph_client_secret" password="True"/>
                             <field name="consent_redirect_uri" widget="CopyClipboardChar"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="active" invisible="1"/>
                         </group>
                     </group>
                     <notebook>
                         <page string="Endpoints" name="endpoints">
                             <group>
                                 <field name="authority_url"/>
-                                <field name="api_url"/>
-                                <field name="api_scope"/>
+                                <!-- PARTNER CENTER (disabled) -->
+                                <field name="api_url" invisible="1"/>
+                                <field name="api_scope" invisible="1"/>
                             </group>
                         </page>
                         <page string="Setup Guide" name="guide">
                             <div class="o_m365_guide">
+                                <!-- PARTNER CENTER (disabled)
                                 <h4>1. Requirements</h4>
                                 <p>A Microsoft <b>Cloud Solution Provider (CSP)</b> partner account
                                    (direct bill partner or indirect provider). New tenants are
@@ -95,12 +106,12 @@
                                 <p class="text-muted">Use an integration sandbox account first:
                                    customers created in production are real tenants and cannot
                                    be deleted from Odoo.</p>
-                                <h4>4. Shared app for the customer tenants</h4>
+                                -->
+                                <h4>Shared app for the customer tenants</h4>
                                 <p>To connect the tenants without an app registration in each
-                                   one, register a <b>multi-tenant</b> app in your partner tenant
+                                   one, register a <b>multi-tenant</b> app in your own tenant
                                    (Entra admin center &#8594; App registrations &#8594;
-                                   <i>Accounts in any organizational directory</i>), or make the
-                                   app above multi-tenant:</p>
+                                   <i>Accounts in any organizational directory</i>):</p>
                                 <ul>
                                     <li>Add the <b>Redirect URI</b> shown above (platform
                                         <i>Web</i>). Odoo must be reachable at this address
@@ -141,13 +152,17 @@
     </record>
 
     <record id="action_m365_partner_account" model="ir.actions.act_window">
-        <field name="name">Partner Center Accounts</field>
+        <field name="name">Shared App</field>
         <field name="res_model">m365.partner.account</field>
         <field name="view_mode">list,form</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">Connect your Partner Center account</p>
+            <p class="o_view_nocontent_smiling_face">Add your shared app</p>
+            <p>One multi-tenant app connects every tenant with <b>Grant Consent</b>, without an
+               app registration in each one.</p>
+            <!-- PARTNER CENTER (disabled)
             <p>New Microsoft 365 tenants are created as customers of your Cloud Solution
                Provider (CSP) partner account.</p>
+            -->
         </field>
     </record>
 </odoo>

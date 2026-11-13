@@ -197,16 +197,67 @@ class TestM365TenantImport(TransactionCase):
         self.assertEqual(tenant.low_availability_units, 5)
         self.assertEqual(tenant.company_id, self.env.company)
 
+    @staticmethod
+    def _xlsx(*sheets):
+        """Excel file of the sheets ``(title, rows)``, base64."""
+        book = openpyxl.Workbook()
+        book.remove(book.active)
+        for title, rows in sheets:
+            sheet = book.create_sheet(title)
+            for row in rows:
+                sheet.append(row)
+        out = io.BytesIO()
+        book.save(out)
+        return base64.b64encode(out.getvalue())
+
+    def test_users_file(self):
+        """The Users File: the users to create, not the file of the tenants."""
+        # The template of the existing tenants has an empty Users sheet
+        wizard = self.env['m365.tenant.import.wizard'].create({})
+        wizard.action_download_template()
+        book = openpyxl.load_workbook(io.BytesIO(base64.b64decode(wizard.template_file)))
+        self.assertEqual(book.sheetnames, ['Tenants', 'Users'])
+        self.assertEqual([cell.value for cell in book['Users'][1]][:3],
+                         ['CompanyName', 'UserName', 'DisplayName'])
+        self.assertEqual(book['Users'].max_row, 1)
+        content = HEADER + 'Woodgrove,woodgrove.com,%s,%s,s,yes,10\n' % (GUID_1, GUID_2)
+        wizard = self._wizard(content)
+        # The file of the tenants itself
+        wizard.write({'users_file': base64.b64encode(content.encode()),
+                      'users_filename': 'tenants.csv'})
+        with self.assertRaisesRegex(UserError, 'The Users File is the file of the tenants'):
+            wizard.action_validate()
+        # A template of the tenants (without Users sheet)
+        wizard.write({'users_file': self._xlsx(('Tenants', [
+            ['Tenant Name', 'Primary Domain', 'Directory (Tenant) ID', 'Client Secret']])),
+            'users_filename': 'm365_tenant_import_template (17).xlsx'})
+        with self.assertRaisesRegex(UserError, 'The Users File contains tenants .*Primary '
+                                               'Domain.*not users'):
+            wizard.action_validate()
+        # Other columns: listed
+        wizard.write({'users_file': self._xlsx(('Sheet', [['UserName', 'Shoe Size']])),
+                      'users_filename': 'users.xlsx'})
+        with self.assertRaisesRegex(UserError, 'Unknown column.*Shoe Size'):
+            wizard.action_validate()
+        # An Excel Users File: its Users sheet, else its first sheet
+        users = [['CompanyName', 'UserName', 'DisplayName'], ['Woodgrove', 'adele', 'Adele V']]
+        for sheets in ((('Tenants', [['Tenant Name']]), ('Users', users)),
+                       (('Sheet1', users),)):
+            wizard.write({'users_file': self._xlsx(*sheets), 'users_filename': 'users.xlsx'})
+            wizard.action_validate()
+            self.assertEqual((wizard.error_count, wizard.user_count), (0, 1),
+                             wizard.line_ids.mapped('message'))
+
     # ------------------------------------------------------------------
     # New tenants (Customers.csv)
     # ------------------------------------------------------------------
     def test_import_new_tenants(self):
         wizard = self._new_wizard(
             NEW_HEADER
-            + 'Fabrikam Inc,FabrikamInc,Lee,Gu,lee.gu@fabrikam.com,,1 Main St,,Redmond,WA,'
-              '98052,US\n'
-            + 'Northwind,northwind.onmicrosoft.com,Megan,Bowen,megan@northwind.com,,'
-              '2 Pine St,Suite 5,Seattle,WA,98101,United States\n')
+            + 'Fabrikam Inc,FabrikamInc,Lee,Gu,lee.gu@fabrikam.com,+1 425 555 0100,1 Main St,,'
+              'Redmond,WA,98052,US\n'
+            + 'Northwind,northwind.onmicrosoft.com,Megan,Bowen,megan@northwind.com,'
+              '+1 206 555 0100,2 Pine St,Suite 5,Seattle,WA,98101,United States\n')
         wizard.action_validate()
         self.assertEqual((wizard.line_count, wizard.error_count), (2, 0))
         self.assertEqual(wizard.line_ids.mapped('domain'),
@@ -220,7 +271,8 @@ class TestM365TenantImport(TransactionCase):
                          ['fabrikaminc.onmicrosoft.com', 'northwind.onmicrosoft.com'])
         self.assertEqual(set(tenants.mapped('tenant_type')), {'new'})
         self.assertEqual(set(tenants.mapped('provision_state')), {'draft'})
-        self.assertEqual(set(tenants.mapped('culture')), {'en-IN'})
+        # PARTNER CENTER (disabled): culture of the Partner Center account
+        self.assertEqual(set(tenants.mapped('creation_channel')), {'ingram'})
         self.assertEqual(tenants.country_id, self.env.ref('base.us'))
         self.assertEqual(tenants[1].address_line2, 'Suite 5')
         self.assertEqual(tenants.partner_account_id, self.account)
@@ -231,11 +283,11 @@ class TestM365TenantImport(TransactionCase):
                                         'domain': 'adatum', 'partner_account_id': self.account.id})
         wizard = self._new_wizard(
             NEW_HEADER
-            + 'Adatum Again,adatum,A,B,a@adatum.com,,1 St,,Pune,MH,411001,US\n'
-            + ',bad domain!,A,B,not-an-email,,1 St,,City,,,Narnia\n'
+            + 'Adatum Again,adatum,A,B,a@adatum.com,1,1 St,,Pune,MH,411001,US\n'
+            + ',bad domain!,A,B,not-an-email,1,1 St,,City,,,Narnia\n'
             + 'India Co,indiaco,A,B,a@india.co,,1 St,,Pune,MH,411001,IN\n'
-            + 'Twice,twice,A,B,a@twice.co,,1 St,,Austin,TX,73301,US\n'
-            + 'Twice Again,TWICE,A,B,a@twice.co,,1 St,,Austin,TX,73301,US\n')
+            + 'Twice,twice,A,B,a@twice.co,1,1 St,,Austin,TX,73301,US\n'
+            + 'Twice Again,TWICE,A,B,a@twice.co,1,1 St,,Austin,TX,73301,US\n')
         wizard.action_validate()
         self.assertEqual((wizard.line_count, wizard.error_count), (5, 4))
         messages = wizard.line_ids.mapped('message')
@@ -247,16 +299,17 @@ class TestM365TenantImport(TransactionCase):
             self.assertIn(text, messages[1])
         self.assertNotIn('Country is required.', messages[1])
         self.assertEqual(messages[1].count('Tenant Name is required.'), 1)
-        self.assertEqual(messages[2], 'Microsoft requires the organization registration '
-                                      'number for India.')
+        # PARTNER CENTER (disabled): registration number required in India; Ingram Micro
+        # needs the phone instead
+        self.assertEqual(messages[2], 'Contact Phone is required.')
         self.assertFalse(messages[3])
         self.assertEqual(messages[4], 'Duplicate Primary Domain, same as SN. 4.')
         with self.assertRaisesRegex(UserError, '(?s)SN. 1: .*SN. 5: '):
             wizard.action_import()
-        # The Partner Center account gives the defaults of the new tenants
+        # PARTNER CENTER (disabled): no Partner Center account needed
         wizard.partner_account_id = False
-        with self.assertRaisesRegex(UserError, 'Select the Partner Center account'):
-            wizard.action_validate()
+        wizard.action_validate()
+        self.assertEqual(wizard.line_count, 5)
 
     def test_import_new_headers(self):
         for header, error in (('CompanyName,Domain,Email\n', 'Missing required column'),
@@ -269,10 +322,12 @@ class TestM365TenantImport(TransactionCase):
             self._new_wizard(NEW_HEADER).action_validate()
         # The field labels are accepted as well
         wizard = self._new_wizard('Tenant Name,Primary Domain,Contact First Name,'
-                                  'Contact Last Name,Contact Email,Address Line 1,City,'
-                                  'Postal Code,Country\n'
-                                  'Litware,litware,Lee,Gu,lee@litware.com,1 St,Austin,73301,US\n')
+                                  'Contact Last Name,Contact Email,Contact Phone,'
+                                  'Address Line 1,City,Postal Code,Country,Culture\n'
+                                  'Litware,litware,Lee,Gu,lee@litware.com,1,1 St,Austin,73301,'
+                                  'US,en-US\n')
         wizard.action_validate()
+        # Culture (Partner Center, disabled) is accepted and not read
         self.assertEqual((wizard.line_count, wizard.error_count), (1, 0))
 
     def test_import_new_template(self):
@@ -297,7 +352,7 @@ class TestM365TenantImport(TransactionCase):
                               + 'Bad,bad.com,%s,,Somebody else\n' % GUID_3)
         wizard.action_validate()
         shared, own, bad = wizard.line_ids
-        self.assertIn('add the shared app to a Partner Center account', shared.message)
+        self.assertIn('add the shared app first', shared.message)
         self.assertEqual(own.message, 'Application (Client) ID is required.')
         self.assertIn('is not a connection', bad.message)
 

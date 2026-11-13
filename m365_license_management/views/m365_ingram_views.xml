@@ -333,6 +333,11 @@
                         Ingram Micro is creating the order: the result arrives through the
                         webhook, usually within minutes.
                     </div>
+                    <div class="alert alert-info" role="alert" invisible="not create_tenant">
+                        This order asks Ingram Micro to create the Microsoft tenant of the
+                        customer. The tenant is created in Odoo once its domain exists in
+                        Microsoft 365.
+                    </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'confirmed'">
                         Ordered at Ingram Micro. The order is delivered when the licenses appear
                         in the tenant (checked every hour).
@@ -340,7 +345,8 @@
                     <group>
                         <group>
                             <field name="tenant_id" options="{'no_create': True}"
-                                   readonly="state != 'draft'"/>
+                                   readonly="state != 'draft' or create_tenant"/>
+                            <field name="create_tenant" invisible="not create_tenant"/>
                             <field name="customer_id"/>
                             <field name="account_id" options="{'no_create': True}"
                                    readonly="state != 'draft'"/>

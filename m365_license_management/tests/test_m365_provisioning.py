@@ -2,6 +2,7 @@
 import base64
 import io
 from datetime import timedelta
+import unittest
 from unittest.mock import patch
 
 import openpyxl
@@ -14,6 +15,8 @@ from ..models.m365_tenant import M365GraphError
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, MODELS, USER_GROUP, USER_ID, USER_ID_2,
                      FakeGraph, M365Common, http_response, map_tenants)
 
+# The purchase through Partner Center and GDAP are disabled: their tests are kept, skipped
+PC_DISABLED = "PARTNER CENTER (disabled): licenses are bought from Ingram Micro, no GDAP"
 PC_PATH = MODELS + '.m365_partner_account.M365PartnerAccount._pc_request'
 PARTNER_GRAPH = MODELS + '.m365_tenant_gdap.M365PartnerAccountGraph._partner_graph_request'
 RELATIONSHIPS = '/tenantRelationships/delegatedAdminRelationships'
@@ -244,6 +247,7 @@ class TestM365PartnerCenterPurchase(ProvisioningCommon):
             order.with_user(self.user).action_retry()
         self.assertEqual(self.env['m365.pc.order'].with_user(self.user).search([]), order)
 
+    @unittest.skip(PC_DISABLED)
     def test_buy_licenses_channel(self):
         action = self.sku.with_user(self.admin).action_buy_licenses()
         self.assertEqual(action['res_model'], 'm365.pc.order')
@@ -263,6 +267,7 @@ class TestM365PartnerCenterPurchase(ProvisioningCommon):
 @tagged('post_install', '-at_install')
 class TestM365ProvisioningFlow(ProvisioningCommon):
 
+    @unittest.skip(PC_DISABLED)
     def test_requested_subscriptions(self):
         self.tenant.requested_subscriptions = ('Microsoft 365 E3 = 10\n%s x 2; Unknown = 1; bad'
                                                % CATALOG_ID)
@@ -375,6 +380,7 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
         with self.assertRaisesRegex(UserError, 'license of the whole tenant'):
             request.action_submit()
 
+    @unittest.skip(PC_DISABLED)
     def test_steps_and_next(self):
         """Steps in order: tenant, GDAP, agreement, connection, domains, subscriptions,
         users, licenses, verification; Next Step runs the first one Odoo can run."""
@@ -411,10 +417,12 @@ class TestM365ProvisioningFlow(ProvisioningCommon):
         self.assertTrue(tenant.prov_summary.startswith('Subscriptions'))
 
     def test_import_links_customers(self):
-        header = ('CompanyName,Domain,FirstName,LastName,Email,AddressLine1,City,PostalCode,'
-                  'Country,OrganizationRegistrationNumber,Subscriptions\n')
+        # OrganizationRegistrationNumber (Partner Center, disabled): accepted, not read
+        header = ('CompanyName,Domain,FirstName,LastName,Email,PhoneNumber,AddressLine1,City,'
+                  'PostalCode,Country,OrganizationRegistrationNumber,Subscriptions\n')
         row = ('Northwind Provision,northwindprov,Nancy,Davolio,nancy@northwind.example,'
-               '1 MG Road,Bengaluru,560001,IN,U72900KA2020PTC000001,Microsoft 365 E3 = 25\n')
+               '+91 80 1234 5678,1 MG Road,Bengaluru,560001,IN,U72900KA2020PTC000001,'
+               'Microsoft 365 E3 = 25\n')
         wizard = self.env['m365.tenant.import.wizard'].create({
             'tenant_type': 'new', 'partner_account_id': self.account.id,
             'file': base64.b64encode((header + row).encode()), 'filename': 'Customers.csv'})

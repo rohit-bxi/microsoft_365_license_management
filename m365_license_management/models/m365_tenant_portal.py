@@ -2,8 +2,8 @@
 """Tenant self-service of the portal users (``/my/m365/tenants``).
 
 Portal users of the group *Microsoft 365: Portal Tenant Self-Service* add tenants of
-type New (created in Microsoft 365 with the Partner Center account of their company)
-and Existing (connected with their app registration), one by one or from a CSV / Excel
+type New (created by Ingram Micro with the order of their Subscriptions to Buy, sent
+straight away on Create) and Existing (connected with their app registration), one by one or from a CSV / Excel
 file. They only see the tenants they added (record rule on ``portal_user_id``).
 
 Each portal step runs the method of the backend button, unchanged:
@@ -12,7 +12,7 @@ Each portal step runs the method of the backend button, unchanged:
 Portal step                     Backend method
 ==============================  ====================================================
 Check (New)                     ``action_check``
-Create in Microsoft 365, Retry  ``action_create``, then *Create Queued Tenants*
+Create in Microsoft 365, Retry  ``action_create`` (order sent to Ingram Micro)
 Reset (New, failed)             ``action_reset_creation``
 I have saved the password       ``action_clear_password``
 Test Connection                 ``action_test_connection``
@@ -62,8 +62,15 @@ class M365Tenant(models.Model):
     # Portal forms
     # ------------------------------------------------------------------
     @api.model
+    def _portal_can_create_new(self):
+        """New tenants can be added: Ingram Micro creates them."""
+        return bool(self.env['m365.ingram.account'].sudo()._get_default())
+        # PARTNER CENTER (disabled): created with the Partner Center account
+        # return bool(self._portal_partner_account())
+
+    @api.model
     def _portal_partner_account(self):
-        """Partner Center account the new tenants of the portal are created with."""
+        """Shared app of the new tenants of the portal (connection with Grant Consent)."""
         return self.env['m365.partner.account'].sudo().search(
             [('company_id', 'in', [False, self.env.company.id])], limit=1)
 
@@ -111,13 +118,16 @@ class M365Tenant(models.Model):
                 errors[fname] = str(exc)
         other_errors = []
         if form == 'new':
-            if tenant and tenant._portal_show_address_confirmed():
-                vals['address_confirmed'] = bool(posted.get('address_confirmed'))
+            # PARTNER CENTER (disabled): address verified by Partner Center
+            # if tenant and tenant._portal_show_address_confirmed():
+            #     vals['address_confirmed'] = bool(posted.get('address_confirmed'))
+            vals.update(self._portal_agreement(vals))
             # The checks of the Check button, without repeating the errors above
             account = self._portal_partner_account()
             record = self.sudo().new(dict({
                 'tenant_type': 'new', 'partner_account_id': account.id,
-                'culture': account.default_culture, 'language': account.default_language,
+                # PARTNER CENTER (disabled)
+                # 'culture': account.default_culture, 'language': account.default_language,
             }, **vals))
             skip = set(errors.values()) | {_("%s is required.", self._fields[fname].string)
                                            for fname in errors}
@@ -136,12 +146,26 @@ class M365Tenant(models.Model):
         return vals, errors, other_errors
 
     @api.model
+    def _portal_agreement(self, vals):
+        """Acceptance of the Microsoft Customer Agreement (sent to Ingram Micro with the
+        order creating the tenant): accepted by the person named in the form or the file,
+        today when no date is given."""
+        accepted = bool(vals.get('mca_email')
+                        and (vals.get('mca_first_name') or vals.get('mca_last_name')))
+        result = {'mca_accepted': accepted}
+        if accepted and not vals.get('mca_date'):
+            result['mca_date'] = fields.Date.context_today(self)
+        return result
+
+    @api.model
     def _portal_form_defaults(self, form):
         """Texts of an empty portal form."""
-        if form != 'new':
-            return {}
-        account = self._portal_partner_account()
-        return {'culture': account.default_culture, 'language': account.default_language}
+        # PARTNER CENTER (disabled): culture and language of the Partner Center account
+        # if form != 'new':
+        #     return {}
+        # account = self._portal_partner_account()
+        # return {'culture': account.default_culture, 'language': account.default_language}
+        return {}
 
     def _portal_form_data(self, form):
         """Texts of the fields of a portal form, from the tenant (never the secret)."""
@@ -168,14 +192,16 @@ class M365Tenant(models.Model):
     def _portal_create(self, vals_list, filename=None):
         """Add tenants for the current portal user.
 
-        New tenants are created in Microsoft 365 with the Partner Center account of the
-        portal. The user is not subscribed to the tenants: the chatter stays internal.
+        New tenants are created by Ingram Micro (the Partner Center account of the portal,
+        if any, gives the shared app). The user is not subscribed to the tenants: the
+        chatter stays internal.
         """
         account = self._portal_partner_account()
         vals_list = [dict(vals, portal_user_id=self.env.uid) for vals in vals_list]
         for vals in vals_list:
             if vals.get('tenant_type') == 'new':
                 vals['partner_account_id'] = account.id
+                vals.update(self._portal_agreement(vals))
         tenants = self.sudo().with_context(mail_create_nosubscribe=True).create(vals_list)
         if filename:
             body = _("Tenant added on the portal by %(user)s, from the file %(file)s.",
@@ -226,7 +252,10 @@ class M365Tenant(models.Model):
     def _portal_busy(self):
         """A background step is running: the portal page reloads itself."""
         self.ensure_one()
-        return bool(self.portal_job or self.provision_state == 'queued')
+        # The creation by Ingram Micro may take hours: no refresh while it is queued
+        return bool(self.portal_job)
+        # PARTNER CENTER (disabled): created in about a minute
+        # return bool(self.portal_job or self.provision_state == 'queued')
 
     def _portal_operations(self):
         """Steps the portal user can take on the tenant in its current status."""
