@@ -139,6 +139,26 @@ class TestM365GraphClient(M365Common):
         self.assertEqual(call.call_args.kwargs['headers']['Authorization'], 'Bearer tok-new')
         self.assertEqual(call.call_args.kwargs['json'], {'a': 1})
 
+    def test_graph_request_concurrency_retry(self):
+        """409 Directory_ConcurrencyViolation: Microsoft asks to retry; another 409 (a real
+        conflict) is an error."""
+        self._set_token()
+        busy = http_response(409, {'error': {
+            'code': 'Request_BadRequest', 'message': 'Directory_ConcurrencyViolation: Error '
+            'due to concurrent requests being made to the tenant.'}})
+        with patch(HTTP_CALL, side_effect=[busy, http_response(200, {'ok': 1})]) as call, \
+                patch(TIME) as mocked_time:
+            result = self.tenant._graph_request('POST', '/users/x/assignLicense',
+                                                json_body={'addLicenses': []})
+        self.assertEqual((result, call.call_count), ({'ok': 1}, 2))
+        mocked_time.sleep.assert_called_once_with(2)
+        conflict = http_response(409, {'error': {'code': 'Conflict',
+                                                 'message': 'Object already exists.'}})
+        with patch(HTTP_CALL, return_value=conflict) as call, patch(TIME), \
+                self.assertRaisesRegex(M365GraphError, 'HTTP 409'):
+            self.tenant._graph_request('POST', '/users', json_body={})
+        self.assertEqual(call.call_count, 1)
+
     def test_graph_request_errors(self):
         self._set_token()
         expired = http_response(401, {'error': {'code': 'InvalidAuthenticationToken',
