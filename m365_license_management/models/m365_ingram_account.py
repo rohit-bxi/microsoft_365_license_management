@@ -340,9 +340,15 @@ class M365IngramAccount(models.Model):
             return self.env['m365.tenant']._notify(
                 _("Ingram Micro connection failed: %s", exc), 'danger')
         self.write({'state': 'connected', 'last_error': False})
-        return self.env['m365.tenant']._notify(_(
-            "Connected to Ingram Micro: %s %s subscription record(s) in the catalog.",
-            data.get('recordsFound', '?'), self.vendor_name))
+        message = _("Connected to Ingram Micro: %s %s subscription record(s) in the catalog.",
+                    data.get('recordsFound', '?'), self.vendor_name)
+        if not self.sudo().webhook_secret:
+            # Without it every order event is refused: orders stay Sent until the hourly
+            # lookup finds them
+            return self.env['m365.tenant']._notify(message + " " + _(
+                "Enter the Webhook Secret Key of the Ingram Micro developer portal: without "
+                "it the order events of Ingram Micro are refused."), 'warning')
+        return self.env['m365.tenant']._notify(message)
 
     def action_sync_plans(self):
         self._check_admin()

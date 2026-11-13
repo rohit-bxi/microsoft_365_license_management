@@ -28,6 +28,10 @@ A tenant of type New (the creation through Partner Center is disabled)::
   info, the fields known to Odoo are sent.
 * Ingram Micro is the indirect provider of the tenant it creates: the relationship is
   recorded. Ingram Micro gives the initial admin user, not Odoo.
+
+The orders of an existing tenant carry the same vendor required info with
+``tenant_preference = existing``: its ``.onmicrosoft.com`` domain (``microsoft_domain``)
+tells Ingram Micro which tenant receives the licenses.
 """
 import logging
 import re
@@ -133,8 +137,8 @@ class M365IngramOrderTenant(models.Model):
                 tenant._trigger_creation_check()
 
     def _creation_required_info(self):
-        """Vendor required info of the plans; when Ingram Micro does not give it, the
-        fields known to Odoo are sent."""
+        """Vendor required info of the plans (new or existing tenant); when Ingram Micro
+        does not give it, the fields known to Odoo are sent."""
         self.ensure_one()
         try:
             return self.account_id._vendor_required_info(self.line_ids.plan_id)
@@ -166,10 +170,24 @@ class M365IngramOrderTenant(models.Model):
             'address_approved_by_user': 'approved',
         }
 
+    def _tenant_existing_values(self):
+        """Value of the fields of an order for an existing tenant, by attribute name."""
+        tenant = self.tenant_id
+        return {
+            TENANT_PREFERENCE: 'existing',
+            'microsoft_domain': tenant._initial_domain_prefix(),
+            # The reseller relationship request is needed only when there is none yet
+            'relationship_url': 'no' if tenant.ingram_relationship else 'yes',
+        }
+
+    def _vendor_info_values(self):
+        return (self._tenant_creation_values() if self.create_tenant
+                else self._tenant_existing_values())
+
     @staticmethod
-    def _required_attributes(group):
+    def _required_attributes(group, preference='new'):
         """(name, value given by Ingram Micro) of a group of the vendor required info; for
-        ``tenant_preference``, the attributes of its ``new`` choice."""
+        ``tenant_preference``, the attributes of its ``new`` or ``existing`` choice."""
         for attr in group.get('additionalAttributes') or []:
             name = attr.get('attributeName') if isinstance(attr, dict) else None
             if not name:
@@ -177,22 +195,24 @@ class M365IngramOrderTenant(models.Model):
             if name != TENANT_PREFERENCE:
                 yield name, attr.get('attributeValue')
                 continue
-            yield name, 'new'
+            yield name, preference
             choice = next((c for c in attr.get('choices') or [] if isinstance(c, dict)
-                           and c.get('attributeValue') == 'new'), {})
+                           and c.get('attributeValue') == preference), {})
             for sub in choice.get('choices') or []:
                 sub_name = isinstance(sub, dict) and (sub.get('attributeName')
                                                       or sub.get('attributename'))
                 if sub_name:
                     yield sub_name, sub.get('attributeValue')
 
-    def _tenant_creation_attributes(self, line, required):
-        """``vriAdditionalAttributes`` of a line creating the tenant.
+    def _vendor_info_attributes(self, line, required):
+        """``vriAdditionalAttributes`` of a line: the new tenant it creates, or the existing
+        tenant receiving the licenses.
 
         :param required: entry of the vendor required info of the plan, or None
         :raise M365IngramError: a field Ingram Micro requires has no value
         """
-        values = self._tenant_creation_values()
+        values = self._vendor_info_values()
+        preference = values[TENANT_PREFERENCE]
         overrides = {attr.name: attr._payload(self, line)['attributeValue']
                      for attr in self.account_id.vmf_attribute_ids}
         groups, missing = [], []
@@ -200,7 +220,7 @@ class M365IngramOrderTenant(models.Model):
             if not isinstance(group, dict):
                 continue
             attributes = []
-            for name, given in self._required_attributes(group):
+            for name, given in self._required_attributes(group, preference):
                 if name in overrides:
                     value = overrides[name]
                 elif name in values:
@@ -223,11 +243,20 @@ class M365IngramOrderTenant(models.Model):
                 {'attributeName': name, 'attributeValue': overrides.get(name, value)}
                 for name, value in values.items()
                 if name not in known and overrides.get(name, value)]
-        if missing:
+            if not self.create_tenant and not overrides.get('microsoft_domain',
+                                                            values['microsoft_domain']):
+                missing.append('microsoft_domain')  # else Ingram cannot find the tenant
+        if missing and self.create_tenant:
             raise M365IngramError(_(
                 "Ingram Micro requires %s to create the tenant: complete the tenant, or add "
                 "the field as a Vendor Field of the Ingram Micro account.",
                 ", ".join(sorted(set(missing)))))
+        if missing:
+            raise M365IngramError(_(
+                "Ingram Micro requires %(fields)s to order for tenant %(tenant)s: refresh its "
+                "domains (its .onmicrosoft.com domain), or add the field as a Vendor Field of "
+                "the Ingram Micro account.", fields=", ".join(sorted(set(missing))),
+                tenant=self.tenant_id.name))
         return groups
 
     @staticmethod
@@ -243,10 +272,10 @@ class M365IngramOrderTenant(models.Model):
                     else {'type': 'MONTHS', 'duration': term.months})
         return False
 
-    def _tenant_creation_line(self, line, required):
-        """Values of a line of the order creating the tenant."""
+    def _vendor_info_line(self, line, required):
+        """Values of a line: plan, subscription period and vendor required info."""
         vals = {'planid': line.plan_id.plan_id,
-                'vriAdditionalAttributes': self._tenant_creation_attributes(line, required)}
+                'vriAdditionalAttributes': self._vendor_info_attributes(line, required)}
         period = self._subscription_period(line.term_id)
         if period:
             vals['subscriptionPeriod'] = period
@@ -264,6 +293,21 @@ class M365TenantIngramCreation(models.Model):
     def _compute_ingram_creation_order(self):
         for rec in self:
             rec.ingram_creation_order_id = rec._ingram_creation_order()
+
+    def _initial_domain_prefix(self):
+        """Prefix of the .onmicrosoft.com domain of the tenant (``microsoft_domain``), read
+        from Microsoft 365 when the domains of a connected tenant are not known yet."""
+        self.ensure_one()
+        rec = self.sudo()
+        if not rec.domain_ids and rec.state == 'connected':
+            try:
+                rec._sync_domains()
+            except M365GraphError as exc:
+                _logger.info("Domains of tenant %s not read: %s", rec.id, exc)
+        name = rec.domain_ids.filtered('is_initial')[:1].name or ''
+        if not name and (rec.domain or '').lower().endswith('.onmicrosoft.com'):
+            name = rec.domain
+        return name.split('.')[0] if name else ''
 
     def _ingram_creation_order(self):
         """Order creating the tenant: the latest one not cancelled nor rejected."""

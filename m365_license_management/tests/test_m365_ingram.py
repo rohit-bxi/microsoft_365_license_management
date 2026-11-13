@@ -79,6 +79,10 @@ class IngramCommon(M365Common):
                         'country_id': cls.env.ref('base.in').id})
         cls.env['customer.customer'].create({'name': 'Megan Bowen', 'parent_id': customer.id,
                                              'email': 'megan@contoso.com'})
+        # Its .onmicrosoft.com domain tells Ingram Micro which tenant gets the licenses
+        cls.env['m365.tenant.domain'].create({
+            'tenant_id': cls.tenant.id, 'name': 'contoso.onmicrosoft.com', 'is_initial': True,
+            'is_verified': True, 'state': 'verified'})
         cls.tenant.write({
             'ingram_relationship': True, 'mca_accepted': True, 'mca_first_name': 'Megan',
             'mca_last_name': 'Bowen', 'mca_email': 'megan@contoso.com',
@@ -111,6 +115,13 @@ class TestM365Ingram(IngramCommon):
                 patch(HTTP_CALL, return_value=http_response(200, {'recordsFound': 1180})) as call:
             action = self.account.with_user(self.admin).action_test_connection()
         self.assertEqual((action['params']['type'], self.account.state), ('success', 'connected'))
+        # Without the webhook secret, the order events would be refused: warned
+        self.account.webhook_secret = False
+        with patch(HTTP_CALL, return_value=http_response(200, {'recordsFound': 1180})):
+            action = self.account.with_user(self.admin).action_test_connection()
+        self.assertEqual(action['params']['type'], 'warning')
+        self.assertIn('Webhook Secret Key', action['params']['message'])
+        self.account.webhook_secret = 'whsec'
         self.assertEqual(get.call_args.args, ('https://api.ingrammicro.com:443/oauth/oauth20/token',))
         self.assertEqual(get.call_args.kwargs['params'], {
             'grant_type': 'client_credentials', 'client_id': 'im-cid', 'client_secret': 'im-secret'})
@@ -289,7 +300,15 @@ class TestM365Ingram(IngramCommon):
             ],
             'lines': [{'customerLineNumber': '1', 'quantity': 5, 'ingramPartNumber': 'MS-E3-M',
                        'vmfAdditionalAttributesLines': [
-                           {'attributeName': 'planId', 'attributeValue': '438292'}]}],
+                           {'attributeName': 'planId', 'attributeValue': '438292'}],
+                       # The existing tenant receiving the licenses (no vendor required
+                       # info returned: the fields known to Odoo)
+                       'planid': '438292',
+                       'vriAdditionalAttributes': [{'vendorName': 'Microsoft',
+                                                    'additionalAttributes': [
+                           {'attributeName': 'tenant_preference', 'attributeValue': 'existing'},
+                           {'attributeName': 'microsoft_domain', 'attributeValue': 'contoso'},
+                           {'attributeName': 'relationship_url', 'attributeValue': 'no'}]}]}],
         }])
 
         # Ingram Micro created the order: webhook
