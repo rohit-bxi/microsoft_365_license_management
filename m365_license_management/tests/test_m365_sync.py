@@ -167,6 +167,8 @@ class TestM365Sync(M365Common):
         # Never more than a day
         self.tenant.failure_count = 20
         self.assertEqual(self.tenant._sync_backoff_wait(), timedelta(hours=24))
+        self.tenant.failure_count = 10000  # failing for months: no overflow
+        self.assertEqual(self.tenant._sync_backoff_wait(), timedelta(hours=24))
         # Connected again: synchronised every time
         self.tenant.state = 'connected'
         self.assertIsNone(self.tenant._sync_backoff_wait())
