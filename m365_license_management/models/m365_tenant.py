@@ -458,8 +458,10 @@ class M365Tenant(models.Model):
         self.ensure_one()
         if self.state != 'error' or self.failure_count < self.BACKOFF_FROM:
             return None
-        return min(timedelta(hours=2 ** (self.failure_count - self.BACKOFF_FROM)),
-                   self.BACKOFF_MAX)
+        # The exponent is capped: 2 ** 5 hours is already more than a day, and a tenant
+        # failing for months has a count far too large for timedelta
+        steps = min(self.failure_count - self.BACKOFF_FROM, 5)
+        return min(timedelta(hours=2 ** steps), self.BACKOFF_MAX)
 
     @api.model
     def _cron_sync_all(self):
