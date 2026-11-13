@@ -27,11 +27,13 @@ XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 IMPORT_SESSION_KEY = 'm365_portal_import'
 MESSAGE_SESSION_KEY = 'm365_portal_message'
 INPUT_TYPES = {'contact_email': 'email', 'contact_phone': 'tel', 'client_secret': 'password',
-               'country_id': 'select'}
+               'country_id': 'select', 'mca_email': 'email', 'mca_date': 'date'}
 PLACEHOLDERS = {
     'name': 'Contoso Ltd', 'tenant_id': '00000000-0000-0000-0000-000000000000',
     'client_id': '00000000-0000-0000-0000-000000000000', 'contact_email': 'name@contoso.com',
-    'culture': 'en-US', 'language': 'en',
+    'requested_subscriptions': 'Microsoft 365 Business Basic = 10',
+    # PARTNER CENTER (disabled)
+    # 'culture': 'en-US', 'language': 'en',
 }
 
 
@@ -128,14 +130,17 @@ class M365TenantPortal(CustomerPortal):
         render_values.update({
             'page_name': 'm365_tenant',
             'm365_message': request.session.pop(MESSAGE_SESSION_KEY, None),
-            'm365_can_create_new': bool(request.env['m365.tenant']._portal_partner_account()),
+            'm365_can_create_new': request.env['m365.tenant']._portal_can_create_new(),
         })
         render_values.update(values)
         return request.render(template, render_values)
 
     def _m365_no_partner_account(self):
-        self._m365_message(_("New tenants cannot be created yet: no Partner Center account "
+        self._m365_message(_("New tenants cannot be created yet: no Ingram Micro account "
                              "is configured. Please contact us."), 'danger')
+        # PARTNER CENTER (disabled)
+        # self._m365_message(_("New tenants cannot be created yet: no Partner Center account "
+        #                      "is configured. Please contact us."), 'danger')
         return request.redirect(URL)
 
     # ------------------------------------------------------------------
@@ -228,7 +233,7 @@ class M365TenantPortal(CustomerPortal):
         Tenant = request.env['m365.tenant']
         if tenant_type not in TENANT_TYPES:
             tenant_type = 'existing'
-        if tenant_type == 'new' and not Tenant._portal_partner_account():
+        if tenant_type == 'new' and not Tenant._portal_can_create_new():
             return self._m365_no_partner_account()
         values, errors, other_errors = Tenant._portal_form_defaults(tenant_type), {}, []
         if request.httprequest.method == 'POST':
@@ -329,13 +334,18 @@ class M365TenantPortal(CustomerPortal):
                      ('authority_url', 'graph_url', 'graph_scope'), True)
         if form == 'new':
             return [
-                (_("Company"), ('name', 'domain', 'organization_registration_number'), False),
+                (_("Company"), ('name', 'domain'), False),
                 (_("Contact"), ('contact_first_name', 'contact_last_name', 'contact_email',
                                 'contact_phone'), False),
                 (_("Registered Address"), ('address_line1', 'address_line2', 'city',
                                            'address_state', 'postal_code', 'country_id'),
                  False),
-                (_("Advanced: language"), ('culture', 'language'), True),
+                (_("Subscriptions to Buy"), ('requested_subscriptions',), False),
+                (_("Microsoft Customer Agreement: accepted by"),
+                 ('mca_first_name', 'mca_last_name', 'mca_email', 'mca_date'), False),
+                # PARTNER CENTER (disabled)
+                # (_("Company"), ('name', 'domain', 'organization_registration_number'), False),
+                # (_("Advanced: language"), ('culture', 'language'), True),
             ]
         if form == 'existing':
             return [(_("Tenant"), ('name', 'domain', 'tenant_id'), False),
@@ -430,7 +440,7 @@ class M365TenantPortal(CustomerPortal):
         Tenant = request.env['m365.tenant']
         if tenant_type not in TENANT_TYPES:
             tenant_type = 'existing'
-        if tenant_type == 'new' and not Tenant._portal_partner_account():
+        if tenant_type == 'new' and not Tenant._portal_can_create_new():
             return self._m365_no_partner_account()
         if request.httprequest.method != 'POST':
             return self._m365_render_import(tenant_type)

@@ -26,3 +26,4 @@ from . import test_m365_tenant_access
 from . import test_m365_portal
 from . import test_customer_customer
 from . import test_customer_tenant_mapping
+from . import test_m365_ingram_tenant

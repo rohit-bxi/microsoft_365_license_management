@@ -211,10 +211,10 @@ class M365TenantProvisioning(models.Model):
 
     requested_subscriptions = fields.Text(
         string="Subscriptions to Buy", copy=False,
-        help="One per line or separated by ; as <offer> = <quantity>. The offer is the "
-             "catalog item ID or the product name of the Partner Center catalog, e.g. "
-             "'Microsoft 365 Business Basic (no Teams) = 10'. A quantity alone buys the "
-             "default offer of the Partner Center account.")
+        help="One per line or separated by ; as <plan> = <quantity>. The plan is the plan ID, "
+             "the part number or the name of the Ingram Micro catalog, optionally followed "
+             "by the period, e.g. 'Microsoft 365 Business Basic (no Teams) = 10'. A quantity "
+             "alone buys the default plan of the Ingram Micro account.")
     prov_tenant = fields.Selection(STEP_STATES, string="Step: Tenant",
                                    compute='_compute_provisioning')
     prov_gdap = fields.Selection(STEP_STATES, string="Step: GDAP", compute='_compute_provisioning')
@@ -259,7 +259,7 @@ class M365TenantProvisioning(models.Model):
     # ------------------------------------------------------------------
     # Status of the steps
     # ------------------------------------------------------------------
-    @api.depends('tenant_type', 'provision_state', 'state', 'gdap_status',
+    @api.depends('tenant_type', 'creation_channel', 'provision_state', 'state', 'gdap_status',
                  'gdap_assignment_status', 'partner_account_id.graph_client_id',
                  'partner_account_id.gdap_group_id', 'partner_account_id.pc_user_state',
                  'pc_order_ids.state', 'requested_subscriptions', 'prov_approve_orders',
@@ -279,22 +279,28 @@ class M365TenantProvisioning(models.Model):
                 steps['prov_tenant'] = 'done'
             elif rec.provision_state == 'failed':
                 steps['prov_tenant'] = 'failed'
+            elif (rec.provision_state == 'queued' and not rec.prov_approve_orders
+                  and sudo._ingram_creation_order().state == 'submitted'):
+                steps['prov_tenant'] = 'action'  # the order creating it waits for approval
             else:
                 steps['prov_tenant'] = 'pending'
             channel = sudo._purchase_channel()
-            # 2. GDAP, with the access of the security group of the account
-            if not (account.graph_client_id and account.partner_tenant_id):
-                steps['prov_gdap'] = 'na'
-            else:
-                steps['prov_gdap'] = {
-                    'active': 'done', 'expiring': 'done', 'activating': 'pending',
-                    'approvalPending': 'action', 'created': 'action', 'expired': 'failed',
-                    'terminated': 'failed', 'terminating': 'failed',
-                    'terminationRequested': 'failed',
-                }.get(rec.gdap_status, 'pending')
-                if steps['prov_gdap'] == 'done' and account.gdap_group_id:
-                    steps['prov_gdap'] = {'active': 'done', 'error': 'failed'}.get(
-                        rec.gdap_assignment_status, 'pending')
+            # 2. GDAP: needs a Partner Center partner tenant
+            steps['prov_gdap'] = 'na'
+            # PARTNER CENTER (disabled): GDAP, with the access of the security group of the
+            # account
+            # if not (account.graph_client_id and account.partner_tenant_id):
+            #     steps['prov_gdap'] = 'na'
+            # else:
+            #     steps['prov_gdap'] = {
+            #         'active': 'done', 'expiring': 'done', 'activating': 'pending',
+            #         'approvalPending': 'action', 'created': 'action', 'expired': 'failed',
+            #         'terminated': 'failed', 'terminating': 'failed',
+            #         'terminationRequested': 'failed',
+            #     }.get(rec.gdap_status, 'pending')
+            #     if steps['prov_gdap'] == 'done' and account.gdap_group_id:
+            #         steps['prov_gdap'] = {'active': 'done', 'error': 'failed'}.get(
+            #             rec.gdap_assignment_status, 'pending')
             # 3. Microsoft Customer Agreement (to buy subscriptions)
             orders = sudo._purchase_orders()
             if sudo._mca_recorded():
@@ -498,8 +504,10 @@ class M365TenantProvisioning(models.Model):
             result.append((plan, term, int(match.group('qty'))))
         return result, errors
 
-    def _order_requested_ingram(self):
-        """Ingram Micro license order of the requested subscriptions, submitted."""
+    def _order_requested_ingram(self, create_tenant=False):
+        """Ingram Micro license order of the requested subscriptions, submitted.
+
+        :param create_tenant: the order asks Ingram Micro to create the tenant"""
         self.ensure_one()
         lines, errors = self._parse_requested_ingram()
         if errors:
@@ -509,7 +517,7 @@ class M365TenantProvisioning(models.Model):
         account = self.env['m365.ingram.account']._get_default()
         order = self.env['m365.ingram.order'].create({
             'tenant_id': self.id, 'account_id': account.id,
-            'reason': _("Provisioning of %s", self.name),
+            'reason': _("Provisioning of %s", self.name), 'create_tenant': create_tenant,
             'line_ids': [(0, 0, {'plan_id': plan.id, 'term_id': term.id or False,
                                  'quantity': qty, 'unit_price': plan.unit_price,
                                  'currency_id': plan.currency_id.id or False})
@@ -552,24 +560,25 @@ class M365TenantProvisioning(models.Model):
     def _prov_account(self):
         return self.sudo().partner_account_id or self._default_partner_account()
 
-    def _prov_run_tenant(self, interactive):
-        if self.provision_state == 'failed' and not self.pc_request_id:
-            if not interactive:
-                return 'action', _("Partner Center refused the creation: %s",
-                                   self.provision_error or '-')
-            self.action_reset_creation()  # nothing created: check the data again
-        if self.provision_state == 'draft':
-            self.action_check()
-            if self.provision_state != 'ready':
-                return 'action', _("Check failed: %s", self.provision_error or '-')
-        if self.provision_state == 'failed' and not interactive:
-            # No answer from Partner Center: same request ID, no second tenant
-            error = self.provision_error
-            self.action_create()
-            raise M365GraphError(error or _("Tenant creation failed."))
-        if self.provision_state in ('ready', 'failed'):
-            self.action_create()
-        return 'waiting', _("Creation of the tenant in Microsoft 365")
+    # PARTNER CENTER (disabled): the tenant is created by Ingram Micro, see _prov_run_tenant in m365_ingram_tenant.py
+    # def _prov_run_tenant(self, interactive):
+    #     if self.provision_state == 'failed' and not self.pc_request_id:
+    #         if not interactive:
+    #             return 'action', _("Partner Center refused the creation: %s",
+    #                                self.provision_error or '-')
+    #         self.action_reset_creation()  # nothing created: check the data again
+    #     if self.provision_state == 'draft':
+    #         self.action_check()
+    #         if self.provision_state != 'ready':
+    #             return 'action', _("Check failed: %s", self.provision_error or '-')
+    #     if self.provision_state == 'failed' and not interactive:
+    #         # No answer from Partner Center: same request ID, no second tenant
+    #         error = self.provision_error
+    #         self.action_create()
+    #         raise M365GraphError(error or _("Tenant creation failed."))
+    #     if self.provision_state in ('ready', 'failed'):
+    #         self.action_create()
+    #     return 'waiting', _("Creation of the tenant in Microsoft 365")
 
     def _prov_run_gdap(self, interactive):
         status = self._refresh_gdap()
@@ -586,11 +595,12 @@ class M365TenantProvisioning(models.Model):
         if status in ('approvalPending', 'created'):
             return 'action', _("Approval of the GDAP relationship by the customer: %s",
                                self.gdap_approval_url or '-')
-        sudo = self.sudo()
-        if (status in (False, 'none') and self.tenant_type == 'new' and sudo.enable_gdap
-                and sudo.created_date
-                and sudo.created_date > fields.Datetime.now() - DEFAULT_GDAP_WAIT):
-            return 'waiting', _("Default GDAP relationship of the new tenant")
+        # PARTNER CENTER (disabled): default GDAP relationship of a tenant created there
+        # sudo = self.sudo()
+        # if (status in (False, 'none') and self.tenant_type == 'new' and sudo.enable_gdap
+        #         and sudo.created_date
+        #         and sudo.created_date > fields.Datetime.now() - DEFAULT_GDAP_WAIT):
+        #     return 'waiting', _("Default GDAP relationship of the new tenant")
         self.action_request_gdap()
         if self.gdap_status != 'approvalPending':
             raise M365GraphError(_("GDAP relationship not requested: see the audit log."))

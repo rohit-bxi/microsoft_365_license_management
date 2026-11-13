@@ -15,8 +15,10 @@
     <menuitem id="menu_m365_provisioning" name="Provisioning" parent="menu_m365_root"
               action="action_m365_provisioning" sequence="0"
               groups="m365_license_management.group_m365_admin"/>
+    <!-- PARTNER CENTER (disabled): subscriptions bought through Ingram Micro only
     <menuitem id="menu_m365_pc_orders" name="Subscription Orders" parent="menu_m365_root"
               action="action_m365_pc_order" sequence="4"/>
+    -->
     <menuitem id="menu_m365_ingram_orders" name="License Orders" parent="menu_m365_root"
               action="action_m365_ingram_order" sequence="4"/>
     <menuitem id="menu_m365_audit" name="Audit Logs" parent="menu_m365_root"
@@ -31,13 +33,16 @@
               action="action_m365_tenant" sequence="1"/>
     <menuitem id="menu_m365_tenants_import" name="Bulk Import Tenant"
               parent="menu_m365_tenants_root" action="action_m365_tenant_import" sequence="2"/>
-    <menuitem id="menu_m365_partner_account" name="Partner Center Account"
+    <!-- The Partner Center account keeps the shared app only -->
+    <menuitem id="menu_m365_partner_account" name="Shared App"
               parent="menu_m365_tenants_root" action="action_m365_partner_account"
               sequence="3"/>
     <menuitem id="menu_m365_user_import" name="Bulk Create Users"
               parent="menu_m365_tenants_root" action="action_m365_user_import" sequence="4"/>
+    <!-- PARTNER CENTER (disabled)
     <menuitem id="menu_m365_pc_offers" name="Partner Center Offers"
               parent="menu_m365_tenants_root" action="action_m365_pc_offer" sequence="4"/>
+    -->
     <menuitem id="menu_m365_config_profiles" name="Tenant Configuration Profiles"
               parent="menu_m365_tenants_root" action="action_m365_config_profile" sequence="5"/>
     <menuitem id="menu_m365_domains" name="Domains" parent="menu_m365_tenants_root"

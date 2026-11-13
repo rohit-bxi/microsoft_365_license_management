@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import ast
+import unittest
 from unittest.mock import patch
 
 import requests
@@ -13,6 +14,9 @@ from .common import ADMIN_GROUP, MODELS, USER_GROUP, http_response, map_tenants
 
 ACCOUNT = MODELS + '.m365_partner_account'
 PC_PATH = ACCOUNT + '.M365PartnerAccount._pc_request'
+# The creation through Partner Center is disabled (tenants are created by Ingram Micro,
+# test_m365_ingram_tenant.py): its tests are kept, skipped
+PC_DISABLED = "PARTNER CENTER (disabled): tenants are created by Ingram Micro"
 CUSTOMER_ID = 'dddddddd-0000-0000-0000-000000000001'
 CREATED = {
     'id': CUSTOMER_ID,
@@ -72,6 +76,7 @@ class TestM365TenantCreation(TransactionCase):
     # ------------------------------------------------------------------
     # Type and data
     # ------------------------------------------------------------------
+    @unittest.skip(PC_DISABLED)
     def test_defaults(self):
         tenant = self.tenant
         # The initial domain is completed, the defaults come from the Partner Center account
@@ -115,6 +120,7 @@ class TestM365TenantCreation(TransactionCase):
         with self.assertRaisesRegex(UserError, 'required for the existing tenant'):
             other.tenant_type = 'existing'
 
+    @unittest.skip(PC_DISABLED)
     def test_check_values(self):
         tenant = self.env['m365.tenant'].new({
             'tenant_type': 'new', 'name': 'Bad', 'domain': 'bad_domain.onmicrosoft.com',
@@ -151,6 +157,7 @@ class TestM365TenantCreation(TransactionCase):
     # ------------------------------------------------------------------
     # Check
     # ------------------------------------------------------------------
+    @unittest.skip(PC_DISABLED)
     def test_check(self):
         calls, pc_request = self._partner_center()
         with patch(PC_PATH, autospec=True, side_effect=pc_request):
@@ -168,6 +175,7 @@ class TestM365TenantCreation(TransactionCase):
         self.tenant.address_line2 = 'Floor 2'
         self.assertEqual(self.tenant.provision_state, 'draft')
 
+    @unittest.skip(PC_DISABLED)
     def test_check_errors(self):
         address = {'status': 'StreetPartial',
                    'validationMessage': "Address field invalid for property: 'PostalCode'",
@@ -203,6 +211,7 @@ class TestM365TenantCreation(TransactionCase):
     # ------------------------------------------------------------------
     # Creation
     # ------------------------------------------------------------------
+    @unittest.skip(PC_DISABLED)
     def test_create(self):
         user = map_tenants(new_test_user(self.env, 'm365_creation_user', groups=USER_GROUP),
                            self.tenant)
@@ -251,6 +260,7 @@ class TestM365TenantCreation(TransactionCase):
         with self.assertRaisesRegex(UserError, 'type of a connected or created tenant'):
             tenant.tenant_type = 'existing'
 
+    @unittest.skip(PC_DISABLED)
     def test_create_failure_and_retry(self):
         self.tenant.provision_state = 'ready'
         error = 'HTTP 400 - InvalidInput (2000): The address is invalid.'
@@ -275,6 +285,7 @@ class TestM365TenantCreation(TransactionCase):
         failed.action_reset_creation()
         self.assertEqual((failed.provision_state, failed.pc_request_id), ('draft', False))
 
+    @unittest.skip(PC_DISABLED)
     def test_create_in_batches(self):
         self.tenant.provision_state = 'ready'
         other = self.tenant.copy({'domain': 'adatum-group', 'provision_state': 'ready'})

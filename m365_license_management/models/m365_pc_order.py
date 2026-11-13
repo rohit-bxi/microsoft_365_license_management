@@ -592,8 +592,14 @@ class M365TenantPurchase(models.Model):
         return super()._auto_product_name(part, graph_sku_id)
 
     def _purchase_channel(self):
-        account = self.sudo().partner_account_id or self._default_partner_account()
-        return account.purchase_channel if account else 'ingram'
+        """Licenses are bought from Ingram Micro (new tenants are created with their first
+        order there)."""
+        return 'ingram'
+        # PARTNER CENTER (disabled): channel of the Partner Center account
+        # if self.tenant_type == 'new':
+        #     return 'ingram'  # created by Ingram Micro with its first order
+        # account = self.sudo().partner_account_id or self._default_partner_account()
+        # return account.purchase_channel if account else 'ingram'
 
     def _buy_action(self, product=None):
         """Buy Licenses: through Partner Center or Ingram Micro (Partner Center account)."""
@@ -641,9 +647,10 @@ class M365DashboardPurchase(models.AbstractModel):
         """Partner Center channel: the alerts of products running out lead to Buy
         Licenses as well."""
         alerts = super()._get_alerts(tenants, skus)
-        if self.env.user.has_group(ADMIN_GROUP) and self.env['m365.partner.account'].search_count(
-                [('purchase_channel', '=', 'partner_center')]):
-            for alert in alerts:
-                if alert.get('kind') in ('sku_empty', 'sku_low') and alert.get('sku_id'):
-                    alert['buy_sku_id'] = alert['sku_id']
+        # PARTNER CENTER (disabled): Buy Licenses goes to Ingram Micro (m365_ingram_order.py)
+        # if self.env.user.has_group(ADMIN_GROUP) and self.env['m365.partner.account'].search_count(
+        #         [('purchase_channel', '=', 'partner_center')]):
+        #     for alert in alerts:
+        #         if alert.get('kind') in ('sku_empty', 'sku_low') and alert.get('sku_id'):
+        #             alert['buy_sku_id'] = alert['sku_id']
         return alerts

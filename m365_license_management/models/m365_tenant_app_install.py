@@ -72,7 +72,8 @@ class M365TenantAppInstall(models.Model):
         self.ensure_one()
         account = self.sudo().partner_account_id or self._default_partner_account()
         if not account:
-            raise UserError(_("Add a Partner Center account with its shared app first."))
+            raise UserError(_("Add the shared app first (Configuration > Tenants > Shared "
+                              "App)."))
         return account.sudo()
 
     def _can_install_shared_app(self):

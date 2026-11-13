@@ -204,7 +204,9 @@
                        decoration-success="prov_connection == 'done'"
                        decoration-danger="prov_connection == 'failed'"
                        decoration-warning="prov_connection in ('pending', 'action')"/>
-                <field name="prov_gdap" widget="badge" decoration-success="prov_gdap == 'done'"
+                <!-- PARTNER CENTER (disabled): GDAP -->
+                <field name="prov_gdap" widget="badge" column_invisible="1"
+                       decoration-success="prov_gdap == 'done'"
                        decoration-danger="prov_gdap == 'failed'"
                        decoration-warning="prov_gdap in ('pending', 'action')"/>
                 <field name="prov_subscriptions" widget="badge"
@@ -236,27 +238,33 @@
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">No tenant yet</p>
             <p>Bulk Import Tenant (type New) uploads the customers; Next Step then runs the
-               provisioning of each one: tenant, connection, GDAP, subscriptions, users,
-               licenses and verification.</p>
+               provisioning of each one: tenant, connection, subscriptions, users, licenses
+               and verification.</p>
         </field>
     </record>
 
-    <!-- Partner Center account: purchase, catalog, GDAP -->
+    <!-- PARTNER CENTER (disabled): purchase, catalog, GDAP of the Partner Center account
+    <! - Partner Center account: purchase, catalog, GDAP - >
     <record id="view_m365_partner_account_form_provisioning" model="ir.ui.view">
         <field name="name">m365.partner.account.form.provisioning</field>
         <field name="model">m365.partner.account</field>
         <field name="inherit_id" ref="view_m365_partner_account_form"/>
         <field name="arch" type="xml">
+            <! - PARTNER CENTER (disabled): catalog of Partner Center
             <xpath expr="//header/button[@name='action_test_connection']" position="after">
                 <button name="action_sync_offers" type="object" string="Synchronise Catalog"
                         invisible="state != 'connected' or purchase_channel != 'partner_center'"/>
             </xpath>
+            - >
+            <! - PARTNER CENTER (disabled): offers of Partner Center
             <xpath expr="//div[@name='button_box']" position="inside">
                 <button name="action_view_offers" type="object" class="oe_stat_button"
                         icon="fa-list" invisible="purchase_channel != 'partner_center'">
                     <field name="offer_count" widget="statinfo" string="Offers"/>
                 </button>
             </xpath>
+            - >
+            <! - PARTNER CENTER (disabled): purchase through Partner Center, GDAP
             <xpath expr="//notebook" position="before">
                 <group>
                     <group string="Purchase">
@@ -273,8 +281,10 @@
                     </group>
                 </group>
             </xpath>
+            - >
         </field>
     </record>
+    -->
 
     <!-- Tenant: GDAP, provisioning, subscription orders -->
     <record id="view_m365_tenant_form_provisioning" model="ir.ui.view">
@@ -287,6 +297,7 @@
                         invisible="prov_state == 'done'"
                         groups="m365_license_management.group_m365_admin"/>
             </xpath>
+            <!-- PARTNER CENTER (disabled): subscription orders of Partner Center
             <xpath expr="//div[@name='button_box']" position="inside">
                 <button name="action_view_pc_orders" type="object" class="oe_stat_button"
                         icon="fa-shopping-basket" invisible="not pc_order_count"
@@ -294,6 +305,7 @@
                     <field name="pc_order_count" widget="statinfo" string="Subscription Orders"/>
                 </button>
             </xpath>
+            -->
             <xpath expr="//page[@name='purchasing']" position="before">
                 <page string="Provisioning" name="provisioning">
                     <group>
@@ -304,14 +316,17 @@
                                    decoration-info="prov_state == 'progress'"/>
                             <field name="prov_tenant"/>
                             <field name="prov_connection"/>
-                            <field name="prov_gdap"/>
+                            <field name="prov_gdap" invisible="1"/>
                             <field name="prov_subscriptions"/>
                             <field name="prov_users"/>
                             <field name="prov_licenses"/>
                             <field name="prov_verification"/>
                             <field name="prov_summary"/>
                         </group>
-                        <group string="GDAP" groups="m365_license_management.group_m365_admin">
+                        <!-- PARTNER CENTER (disabled): GDAP needs a partner tenant; hidden,
+                             anchor of other views -->
+                        <group string="GDAP" groups="m365_license_management.group_m365_admin"
+                               invisible="1">
                             <field name="gdap_status"/>
                             <field name="gdap_name" invisible="not gdap_name"/>
                             <field name="gdap_end_date" invisible="not gdap_end_date"/>

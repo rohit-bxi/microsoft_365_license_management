@@ -50,7 +50,7 @@ class M365TenantConsent(models.Model):
     ], string="Connection", default='own_app', required=True, tracking=True,
         help="Own App Registration: an app registered in this tenant, with its client ID "
              "and secret entered here.\n"
-             "Shared App: the multi-tenant app of the Partner Center account, after a "
+             "Shared App: the multi-tenant app (Configuration > Tenants > Shared App), after a "
              "Global Administrator of the tenant granted it consent (Grant Consent).")
     consent_nonce = fields.Char(copy=False, groups=ADMIN_GROUP)
     consent_expiry = fields.Datetime(string="Consent Link Valid Until", readonly=True,
@@ -107,8 +107,7 @@ class M365TenantConsent(models.Model):
         if not rec.tenant_id:
             raise M365GraphError(_("The Directory (Tenant) ID is required."))
         if not rec.partner_account_id:
-            raise M365GraphError(_("Select the Partner Center account of the shared app of "
-                                   "the tenant %s.", rec.name))
+            raise M365GraphError(_("Select the shared app of the tenant %s.", rec.name))
         return rec.partner_account_id._shared_app_credentials()
 
     # ------------------------------------------------------------------
@@ -158,8 +157,8 @@ class M365TenantConsent(models.Model):
         rec = self.sudo()
         account = rec.partner_account_id or rec._default_partner_account()
         if not account:
-            raise UserError(_("Add a Partner Center account with its shared app first "
-                              "(Tenants > Partner Center Account)."))
+            raise UserError(_("Add the shared app first (Configuration > Tenants > Shared "
+                              "App)."))
         account._shared_app_credentials()  # configured?
         vals = {
             'consent_nonce': secrets.token_urlsafe(24),
@@ -265,7 +264,7 @@ class M365TenantConsent(models.Model):
         rec = self.sudo()
         account = rec.partner_account_id or rec._default_partner_account()
         if not account:
-            return _("No Partner Center account with a shared app.")
+            return _("No shared app.")
         vals = {'connection_mode': 'shared_app'}
         if not rec.partner_account_id:
             vals['partner_account_id'] = account.id

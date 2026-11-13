@@ -14,6 +14,8 @@ Cancel an order not yet released           DELETE /resellers/v6/orders/{orderNum
 Invoices                                   GET  /resellers/v6/invoices, v6.1/invoices/{n}
 Renewals                                   POST /resellers/v6/renewals/search
 Vendor fields of a quote                   GET  /resellers/v6/q2o/validatequote
+Vendor required info of plans              POST /resellers/v7/vendorrequiredinfo
+New tenant (with its first order)          POST /resellers/v7/orders, tenant_preference
 =========================================  ===============================================
 
 Every call sends ``IM-CustomerNumber``, ``IM-CountryCode``, ``IM-SenderID`` (and

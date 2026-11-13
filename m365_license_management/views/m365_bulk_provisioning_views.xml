@@ -9,8 +9,10 @@
         <field name="inherit_id" ref="view_m365_partner_account_form"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='consent_redirect_uri']" position="after">
-                <field name="signin_redirect_uri" widget="CopyClipboardChar"/>
+                <!-- PARTNER CENTER (disabled): sign-in of the partner user -->
+                <field name="signin_redirect_uri" widget="CopyClipboardChar" invisible="1"/>
             </xpath>
+            <!-- PARTNER CENTER (disabled): partner user sign-in, customer tenant setup
             <xpath expr="//notebook" position="before">
                 <group>
                     <group string="Partner User (App+User)">
@@ -40,6 +42,8 @@
                     </group>
                 </group>
             </xpath>
+            -->
+            <!-- PARTNER CENTER (disabled): guide of the partner user
             <xpath expr="//page[@name='guide']/div" position="inside">
                 <h4>5. Bulk provisioning without customer sign-in</h4>
                 <p>To accept the Microsoft Customer Agreement and install the shared app in the
@@ -64,6 +68,7 @@
                         Odoo asks (about every 90 days).</li>
                 </ul>
             </xpath>
+            -->
         </field>
     </record>
 
@@ -83,7 +88,8 @@
                 </button>
             </xpath>
             <!-- Creation: custom domains -->
-            <xpath expr="//page[@name='creation']//field[@name='enable_gdap']" position="after">
+            <!-- PARTNER CENTER (disabled): after enable_gdap, in the Partner Center group -->
+            <xpath expr="//page[@name='creation']//field[@name='partner_account_id']" position="after">
                 <field name="custom_domains" placeholder="contoso.com; contoso.in"/>
                 <field name="custom_domain_default" invisible="not custom_domains"/>
                 <field name="auto_initial_domain" readonly="provision_state in ('queued', 'done')"/>
@@ -96,7 +102,8 @@
                            decoration-danger="prov_state == 'failed'"
                            decoration-info="prov_state == 'progress'"/>
                     <field name="prov_tenant"/>
-                    <field name="prov_gdap"/>
+                    <!-- PARTNER CENTER (disabled): GDAP needs a partner tenant -->
+                    <field name="prov_gdap" invisible="1"/>
                     <field name="prov_agreement"/>
                     <field name="prov_relationship"/>
                     <field name="prov_connection"/>
@@ -113,9 +120,9 @@
                 <field name="gdap_role_ids" invisible="1"/>
             </xpath>
             <xpath expr="//page[@name='provisioning']//button[@name='action_request_gdap']" position="after">
+                <!-- PARTNER CENTER (disabled): GDAP; hidden -->
                 <button name="action_gdap_assign_group" type="object" string="Give Roles to Group"
-                        class="btn-secondary ms-2"
-                        invisible="gdap_status not in ('active', 'expiring') or gdap_assignment_status in ('active', 'pending')"/>
+                        class="btn-secondary ms-2" invisible="1"/>
             </xpath>
             <xpath expr="//page[@name='provisioning']/group[1]" position="after">
                 <group groups="m365_license_management.group_m365_admin">
@@ -174,7 +181,7 @@
                             confirm="Download the temporary passwords? They are removed from Odoo by the download."/>
                 </div>
             </xpath>
-            <!-- Purchasing: agreement through Partner Center -->
+            <!-- PARTNER CENTER (disabled): agreement attested in Partner Center
             <xpath expr="//page[@name='purchasing']//field[@name='mca_accepted']" position="before">
                 <field name="mca_customer_confirmed"/>
                 <field name="mca_attested" invisible="not mca_attested"/>
@@ -186,6 +193,7 @@
                             confirm="Attest in Partner Center that the customer accepted the Microsoft Customer Agreement?"/>
                 </div>
             </xpath>
+            -->
             <!-- Domains: status and DNS records -->
             <xpath expr="//page[@name='domains']//button[@name='action_sync_domains']" position="after">
                 <button name="action_send_dns_records" type="object" string="Send DNS Records"

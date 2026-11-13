@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Microsoft 365 License Management',
-    'version': '19.0.1.9.2',
+    'version': '19.0.1.10.1',
     'category': 'Administration',
     'summary': 'Multi-tenant Microsoft 365 license inventory, dashboard, '
                'approval based assignment, tenant setup, MFA operations and Ingram Micro '
@@ -13,8 +13,9 @@ Centralised license inventory dashboard and administrative portal for one or
 more Microsoft 365 tenants, integrated through the Microsoft Graph API.
 
 * Tenant masters (Entra app registration, OAuth 2.0 client credentials)
-* Tenants of type New: created through Microsoft Partner Center (CSP), one by one
-  or in bulk from a CSV / Excel file, then connected like existing tenants
+* Tenants of type New: created by Ingram Micro with their first order, one by one or
+  in bulk from a CSV / Excel file, then connected like existing tenants (the creation
+  through Microsoft Partner Center is disabled)
 * Shared multi-tenant app of the partner: tenants connect after a one-time admin
   consent, without an app registration of their own
 * Tenant configuration profiles (Security Defaults, password expiry, technical contact)
@@ -33,6 +34,8 @@ more Microsoft 365 tenants, integrated through the Microsoft Graph API.
   in the customer file of existing tenants
 * Licenses bought from Ingram Micro (catalog, prices, orders with approval, webhook,
   delivery check in the tenant)
+* New tenants created by Ingram Micro with their first order (vendor required info,
+  tenant_preference new), seen in Odoo once their domain exists in Microsoft 365
 * Product catalogue master (SKU part number -> friendly product name)
 * License inventory synchronisation (GET /subscribedSkus) with history snapshots
 * User directory synchronisation (GET /users) with current licenses

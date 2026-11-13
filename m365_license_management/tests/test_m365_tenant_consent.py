@@ -82,7 +82,7 @@ class TestM365TenantConsent(ConsentCommon):
 
     def test_shared_app_errors(self):
         self.tenant.connection_mode = 'shared_app'
-        with self.assertRaisesRegex(M365GraphError, 'Select the Partner Center account'):
+        with self.assertRaisesRegex(M365GraphError, 'Select the shared app of the tenant'):
             self.tenant._get_access_token()
         self.tenant.partner_account_id = self.account
         self.account.graph_client_secret = False

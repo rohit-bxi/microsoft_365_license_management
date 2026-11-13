@@ -36,9 +36,10 @@ class M365PartnerCenterTimeout(M365GraphError):
 
 
 class M365PartnerAccount(models.Model):
-    """Microsoft Partner Center (CSP) account the customer tenants are created with."""
+    """Shared app (multi-tenant app) connecting the customer tenants. The Microsoft Partner
+    Center (CSP) parts of the account are disabled: PARTNER CENTER (disabled)."""
     _name = 'm365.partner.account'
-    _description = 'Microsoft Partner Center Account'
+    _description = 'Shared App'
     _inherit = ['mail.thread']
     _order = 'name'
 

@@ -7,6 +7,7 @@ import io
 import json
 import urllib.parse
 from datetime import timedelta
+import unittest
 from unittest.mock import patch
 
 import openpyxl
@@ -21,6 +22,8 @@ from .test_m365_provisioning import (CATALOG_ID, CUSTOMER, PARTNER_GRAPH, PC_PAT
                                      RELATIONSHIPS, FakePartnerCenter, ProvisioningCommon,
                                      skus)
 
+# The purchase through Partner Center and GDAP are disabled: their tests are kept, skipped
+PC_DISABLED = "PARTNER CENTER (disabled): licenses are bought from Ingram Micro, no GDAP"
 SIGNIN = MODELS + '.m365_partner_signin.M365PartnerAccountSignin'
 PC_USER = SIGNIN + '._pc_user_request'
 CUSTOMER_GRAPH = SIGNIN + '._customer_graph_request'
@@ -247,6 +250,7 @@ class TestM365AppInstall(BulkCommon):
 @tagged('post_install', '-at_install')
 class TestM365GdapAssignment(BulkCommon):
 
+    @unittest.skip(PC_DISABLED)
     def test_assignment(self):
         self.account.write({'gdap_group_id': 'GROUP-1',
                             'gdap_assignment_role_ids': '%s,unknown-role' % REL_ROLES[1]})
@@ -279,6 +283,7 @@ class TestM365GdapAssignment(BulkCommon):
             self.tenant._refresh_gdap()
         self.assertEqual(self.tenant.prov_gdap, 'done')
 
+    @unittest.skip(PC_DISABLED)
     def test_no_group(self):
         with patch(PARTNER_GRAPH, return_value=[relationship()]):
             self.tenant._refresh_gdap()
@@ -505,6 +510,7 @@ class TestM365AutoProvision(BulkCommon):
                 patch(PARTNER_GRAPH, return_value=[relationship()]):
             self.env['m365.tenant']._cron_auto_provision()
 
+    @unittest.skip(PC_DISABLED)
     def test_full_run(self):
         self._run()
         tenant = self.tenant
@@ -533,6 +539,7 @@ class TestM365AutoProvision(BulkCommon):
         self.assertFalse(tenant.auto_provision)
         self.assertTrue(self._logs('auto_provision').filtered(lambda l: l.status == 'success'))
 
+    @unittest.skip(PC_DISABLED)
     def test_errors_and_stop(self):
         def broken(method, path, params=None, json_body=None, paginate=False):
             raise M365GraphError('HTTP 503 - unavailable')
@@ -548,6 +555,7 @@ class TestM365AutoProvision(BulkCommon):
         self.assertIn('5 errors in a row', self.tenant.prov_error)
         self.assertTrue(self.tenant.activity_ids)
 
+    @unittest.skip(PC_DISABLED)
     def test_needs_a_person(self):
         self.tenant.requested_subscriptions = 'Unknown Offer = 2'
         self._run()
@@ -626,12 +634,13 @@ class TestM365OffersAndImport(BulkCommon):
         self.env['m365.tenant.domain'].create({'tenant_id': self.tenant.id,
                                                'name': 'taken-example.com'})
         header = ['CompanyName', 'Domain', 'FirstName', 'LastName', 'Email', 'AddressLine1',
-                  'City', 'PostalCode', 'Country', 'CustomDomains', 'Subscriptions']
+                  'City', 'PostalCode', 'Country', 'CustomDomains', 'Subscriptions',
+                  'PhoneNumber']
         customers = [header,
                      ['Litware One', 'litware-example.com', 'Lee', 'Gu', 'lee@litware.example',
-                      '1 St', 'Austin', '73301', 'US', 'litware-example.net', '10'],
+                      '1 St', 'Austin', '73301', 'US', 'litware-example.net', '10', '1'],
                      ['Litware Two', 'litware-example.org', 'Lee', 'Gu', 'lee@litware.example',
-                      '1 St', 'Austin', '73301', 'US', 'taken-example.com', '']]
+                      '1 St', 'Austin', '73301', 'US', 'taken-example.com', '', '1']]
         users = [['CompanyName', 'UserName', 'DisplayName', 'Licenses'],
                  ['Litware One', 'adele', 'Adele V', 'default'],
                  ['litware-example.net', 'alex@litware-example.net', '', ''],
@@ -675,21 +684,14 @@ class TestM365OffersAndImport(BulkCommon):
     def test_free_initial_domain(self):
         tenant = self.env['m365.tenant'].create({
             'tenant_type': 'new', 'name': 'Adatum', 'domain': 'adatum',
-            'partner_account_id': self.account.id, 'auto_initial_domain': True,
-            'contact_first_name': 'A', 'contact_last_name': 'B',
-            'contact_email': 'a@adatum.example', 'address_line1': '1 St', 'city': 'Austin',
-            'postal_code': '73301', 'country_id': self.env.ref('base.us').id,
-            'address_confirmed': True})
-
-        def pc(method, path, json_body=None, request_id=None, expect=()):
-            used = path in ('/v1/domains/adatum.onmicrosoft.com',
-                            '/v1/domains/adatum1.onmicrosoft.com')
-            return (200 if used else 404), {}
-
-        with patch(PC_PATH, side_effect=pc):
-            tenant.with_user(self.admin).action_check()
-        self.assertEqual((tenant.provision_state, tenant.domain),
-                         ('ready', 'adatum2.onmicrosoft.com'))
+            'auto_initial_domain': True})
+        used = {'adatum.onmicrosoft.com', 'adatum1.onmicrosoft.com'}
+        # PARTNER CENTER (disabled): HEAD /v1/domains; the tenant of the domain is looked
+        # up in Microsoft 365 instead
+        with patch(MODELS + '.m365_ingram_tenant.M365TenantIngramCreation._lookup_tenant_id',
+                   side_effect=lambda domain: GUID_A if domain in used else False):
+            self.assertEqual(tenant._check_domain(), [])
+        self.assertEqual(tenant.domain, 'adatum2.onmicrosoft.com')
 
     def test_template(self):
         # Tenants of the database imported from the template must not clash with it

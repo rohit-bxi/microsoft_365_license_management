@@ -90,16 +90,17 @@ NEW_COLUMNS = [
     ('contact_first_name', 'text', True),
     ('contact_last_name', 'text', True),
     ('contact_email', 'text', True),
-    ('contact_phone', 'text', False),
+    ('contact_phone', 'text', True),
     ('address_line1', 'text', True),
     ('address_line2', 'text', False),
     ('city', 'text', True),
     ('address_state', 'text', False),
     ('postal_code', 'text', True),
     ('country_id', 'country', True),
-    ('culture', 'text', False),
-    ('language', 'text', False),
-    ('organization_registration_number', 'text', False),
+    # PARTNER CENTER (disabled): billing profile of the Partner Center customer
+    # ('culture', 'text', False),
+    # ('language', 'text', False),
+    # ('organization_registration_number', 'text', False),
     ('requested_subscriptions', 'text', False),
     ('custom_domains', 'domains', False),
     ('mca_first_name', 'text', False),
@@ -115,8 +116,9 @@ NEW_HEADERS = {
     'address_line1': 'AddressLine1', 'address_line2': 'AddressLine2', 'city': 'City',
     'address_state': 'State', 'postal_code': 'PostalCode', 'country_id': 'Country',
     'requested_subscriptions': 'Subscriptions',
-    'culture': 'Culture', 'language': 'Language',
-    'organization_registration_number': 'OrganizationRegistrationNumber',
+    # PARTNER CENTER (disabled)
+    # 'culture': 'Culture', 'language': 'Language',
+    # 'organization_registration_number': 'OrganizationRegistrationNumber',
     'custom_domains': 'CustomDomains',
     'mca_first_name': 'AgreementFirstName', 'mca_last_name': 'AgreementLastName',
     'mca_email': 'AgreementEmail', 'mca_phone': 'AgreementPhone', 'mca_date': 'AgreementDate',
@@ -124,14 +126,15 @@ NEW_HEADERS = {
 }
 # Other accepted headers of the new tenant columns (normalised)
 NEW_ALIASES = {'initialdomain': 'domain', 'initial domain': 'domain'}
+# Columns of the creation through Partner Center (disabled): accepted, not read
+NEW_IGNORED = {'culture', 'language', 'organizationregistrationnumber',
+               'organization registration number'}
 NEW_TEMPLATE_NAME = 'm365_customers_template.xlsx'
 NEW_SAMPLE = {
     'name': 'Contoso Ltd', 'domain': 'contosoltd', 'contact_first_name': 'Adele',
     'contact_last_name': 'Vance', 'contact_email': 'adele.vance@contoso.com',
     'contact_phone': '+91 80 4000 1000', 'address_line1': '1 MG Road', 'address_line2': '',
     'city': 'Bengaluru', 'address_state': 'KA', 'postal_code': '560001', 'country_id': 'IN',
-    'culture': 'en-IN', 'language': 'en',
-    'organization_registration_number': 'U72900KA2020PTC000000',
     'requested_subscriptions': 'Microsoft 365 Business Basic (no Teams) = 10',
     'custom_domains': 'contoso-example.com', 'mca_first_name': 'Adele',
     'mca_last_name': 'Vance', 'mca_email': 'adele.vance@contoso.com', 'mca_phone': '',
@@ -172,9 +175,9 @@ class M365TenantImportWizard(models.TransientModel):
         ('new', 'New'),
     ], string="Type", default='existing', required=True,
         help="Existing: tenants to connect, with their app registration.\n"
-             "New: tenants to create through Partner Center (Customers.csv).")
+             "New: tenants to create through Ingram Micro (Customers.csv).")
     partner_account_id = fields.Many2one(
-        'm365.partner.account', string="Partner Center Account",
+        'm365.partner.account', string="Shared App",
         default=lambda self: self.env['m365.tenant']._default_partner_account(),
         help="The new tenants are created as customers of this account.")
     file = fields.Binary(string="File", attachment=False,
@@ -182,9 +185,10 @@ class M365TenantImportWizard(models.TransientModel):
     filename = fields.Char()
     users_file = fields.Binary(
         string="Users File", attachment=False,
-        help="Optional CSV or Excel file of the users to create in the new tenants (same "
-             "columns as the Users sheet of the template). An Excel customer file can "
-             "contain them in a sheet named Users instead.")
+        help="Optional CSV or Excel file of the users to create in the tenants of the file "
+             "(columns of the Users sheet of the template: CompanyName, UserName, "
+             "DisplayName, ...). Not the file of the tenants: an Excel file of the tenants "
+             "can contain the users in a sheet named Users instead.")
     users_filename = fields.Char()
     template_file = fields.Binary(attachment=False)
     line_ids = fields.One2many('m365.tenant.import.line', 'wizard_id', string="Rows")
@@ -199,13 +203,13 @@ class M365TenantImportWizard(models.TransientModel):
              "where a person is needed.")
     approve_orders = fields.Boolean(
         string="Approve the Subscription Orders",
-        help="The Subscriptions of the file are ordered in Partner Center without another "
+        help="The Subscriptions of the file are ordered from Ingram Micro without another "
              "approval: you approve them by importing the file. Recorded in the audit log.")
     mca_confirmed = fields.Boolean(
         string="The Customers Accepted the Microsoft Customer Agreement",
         help="You confirm that each customer of the file accepted the Microsoft Customer "
-             "Agreement (Agreement columns, else the contact). Odoo attests it in Partner "
-             "Center with the signed-in partner user.")
+             "Agreement (Agreement columns, else the contact). Odoo sends it to Ingram Micro "
+             "with the orders.")
     ingram_linked = fields.Boolean(
         string="The Customers Accepted the Reseller Relationship of Ingram Micro",
         help="Each customer of the file accepted the reseller relationship of Ingram Micro "
@@ -261,6 +265,9 @@ class M365TenantImportWizard(models.TransientModel):
             if not title:
                 continue
             fname = lookup.get(self._normalise(title))
+            if not fname and self.tenant_type == 'new' and \
+                    self._normalise(title) in NEW_IGNORED:
+                continue
             if not fname:
                 unknown.append(title)
             elif fname in mapping.values():
@@ -372,15 +379,18 @@ class M365TenantImportWizard(models.TransientModel):
         defaults = self._option_defaults()
         if self.tenant_type == 'new':
             account = self.partner_account_id
-            if not account:
-                raise UserError(_("Select the Partner Center account of the new tenants."))
+            # PARTNER CENTER (disabled): the new tenants are created by Ingram Micro
+            # if not account:
+            #     raise UserError(_("Select the Partner Center account of the new tenants."))
             lookups['country'] = {}
             for country in self.env['res.country'].search([]):
                 lookups['country'][country.code.lower()] = country
                 lookups['country'][country.name.lower()] = country
             defaults.update(tenant_type='new', partner_account_id=account.id,
-                            culture=account.default_culture,
-                            language=account.default_language, enable_gdap=account.enable_gdap,
+                            # PARTNER CENTER (disabled)
+                            # culture=account.default_culture,
+                            # language=account.default_language,
+                            # enable_gdap=account.enable_gdap,
                             auto_initial_domain=self.pick_free_domain)
         cache = {}
 
@@ -419,8 +429,8 @@ class M365TenantImportWizard(models.TransientModel):
                     if account:
                         vals['partner_account_id'] = account.id
                     else:
-                        errors.append(_("Connection Shared App: add the shared app to a "
-                                        "Partner Center account first."))
+                        errors.append(_("Connection Shared App: add the shared app first "
+                                        "(Configuration > Tenants > Shared App)."))
                 elif not vals.get('client_id') and \
                         Tenant._fields['client_id'].string not in invalid:
                     errors.append(_("%s is required.", Tenant._fields['client_id'].string))
@@ -453,8 +463,12 @@ class M365TenantImportWizard(models.TransientModel):
 
     def _import_channel(self):
         """Where the licenses of the file are bought: Partner Center or Ingram Micro."""
-        account = self.partner_account_id or self.env['m365.tenant']._default_partner_account()
-        return account.purchase_channel if account else 'ingram'
+        return 'ingram'
+        # PARTNER CENTER (disabled): channel of the Partner Center account
+        # if self.tenant_type == 'new':
+        #     return 'ingram'  # new tenants are created by Ingram Micro with their first order
+        # account = self.partner_account_id or self.env['m365.tenant']._default_partner_account()
+        # return account.purchase_channel if account else 'ingram'
 
     def _option_defaults(self):
         """Values of the options of the wizard, for every tenant of the file."""
@@ -548,13 +562,22 @@ class M365TenantImportWizard(models.TransientModel):
         return re.sub(r'[\s_]+', '', str(title or '')).lower()
 
     def _read_user_rows(self):
-        """Rows of the Users sheet of the customer file, else of the users file."""
+        """Rows of the Users sheet of the customer file, else of the users file (its Users
+        sheet, else its first sheet)."""
         self.ensure_one()
         rows = None
         if self.file and (self.filename or '').lower().endswith('.xlsx'):
             rows = self._read_xlsx_sheet(base64.b64decode(self.file), USER_SHEET)
         if rows is None and self.users_file:
-            rows = self._rows_of(base64.b64decode(self.users_file), self.users_filename)
+            if self.users_file == self.file:
+                raise UserError(_("The Users File is the file of the tenants. Upload the file "
+                                  "of the users to create (columns of the Users sheet of the "
+                                  "template), or remove it."))
+            raw = base64.b64decode(self.users_file)
+            if (self.users_filename or '').lower().endswith('.xlsx'):
+                rows = self._read_xlsx_sheet(raw, USER_SHEET)
+            if rows is None:
+                rows = self._rows_of(raw, self.users_filename)
         if rows is None:
             return []
         return [values for values in ([self._cell_text(v) for v in row] for row in rows)
@@ -564,7 +587,7 @@ class M365TenantImportWizard(models.TransientModel):
         """Attach the users of the file to their tenant rows (``row['users']``). Their
         errors are added to the row of their tenant, or to a last row *Users*."""
         rows = self._read_user_rows()
-        if len(rows) < 2:
+        if not rows:
             return
         keys = {}
         for key, title, _required, aliases in USER_COLUMNS:
@@ -579,15 +602,28 @@ class M365TenantImportWizard(models.TransientModel):
                 unknown.append(title)
             elif key not in mapping.values():
                 mapping[index] = key
+        allowed = ", ".join(t for _k, t, _r, _a in USER_COLUMNS)
+        Tenant = self.env['m365.tenant']
+        tenant_titles = {self._header_key(title) for fname, _kind, _req in self._columns()
+                         for title in (fname, Tenant._fields[fname].string,
+                                       self._column_title(fname))}
+        if unknown and any(self._header_key(title) in tenant_titles for title in unknown):
+            # e.g. the template of the tenants uploaded as Users File
+            raise UserError(_("The Users File contains tenants (columns %(columns)s), not "
+                              "users. Upload the file of the users to create, with the "
+                              "columns %(allowed)s (Users sheet of the template), or remove "
+                              "it.", columns=", ".join(unknown), allowed=allowed))
         if unknown:
             raise UserError(_("Unknown column(s) in the users: %(unknown)s.\nAllowed "
                               "columns: %(allowed)s.", unknown=", ".join(unknown),
-                              allowed=", ".join(t for _k, t, _r, _a in USER_COLUMNS)))
+                              allowed=allowed))
         missing = [title for key, title, required, _a in USER_COLUMNS
                    if required and key not in mapping.values()]
         if missing:
             raise UserError(_("Missing required column(s) in the users: %s.",
                               ", ".join(missing)))
+        if len(rows) < 2:
+            return  # no user, e.g. the empty Users sheet of the template
         tenants = {}
         for row in result:
             vals = row['vals']
@@ -804,14 +840,23 @@ class M365TenantImportWizard(models.TransientModel):
             sheet.column_dimensions[cell.column_letter].width = max(14, len(title) + 4)
         sheet.append([NEW_SAMPLE.get(fname, '') for fname, _kind, _required in NEW_COLUMNS])
         sheet.freeze_panes = 'A2'
+        self._add_users_sheet(book, samples=True)
+        return book
+
+    def _add_users_sheet(self, book, samples):
+        """Users sheet of a template: the users to create in the tenants of the first
+        sheet, with example rows when ``samples``."""
+        required_fill = PatternFill('solid', fgColor='FFF2CC')
         users = book.create_sheet(USER_SHEET)
         hints = {
-            'company': _("CompanyName (or a domain) of the customer in the first sheet."),
+            'company': (_("CompanyName (or a domain) of the customer in the first sheet.")
+                        if self.tenant_type == 'new' else
+                        _("Tenant Name (or Primary Domain) of the tenant in the first sheet.")),
             'user_name': _("Part before the @ (the first custom domain, else the "
                            ".onmicrosoft.com domain, is added), or the full user name."),
             'licenses': _("Licenses (separated by ;): name or SKU of the license, name of "
-                          "the Partner Center offer, or \"default\" (default offer of the "
-                          "Partner Center account)."),
+                          "the Ingram Micro plan, or \"default\" (default plan of the Ingram "
+                          "Micro account)."),
             'usage_location': _("ISO country code; blank: the country of the customer."),
         }
         for col, (key, title, required, _aliases) in enumerate(USER_COLUMNS, start=1):
@@ -822,10 +867,10 @@ class M365TenantImportWizard(models.TransientModel):
             if key in hints:
                 cell.comment = Comment(hints[key], 'Odoo')
             users.column_dimensions[cell.column_letter].width = max(14, len(title) + 4)
-        for sample in USER_SAMPLES:
+        for sample in (USER_SAMPLES if samples else ()):
             users.append(list(sample))
         users.freeze_panes = 'A2'
-        return book
+        return users
 
     def action_download_template(self):
         self.ensure_one()
@@ -856,6 +901,9 @@ class M365TenantImportWizard(models.TransientModel):
         for sample in SAMPLE_ROWS:
             sheet.append([sample.get(fname) for fname, _kind, _required in columns])
         sheet.freeze_panes = 'A2'
+        # The users to create in these tenants (optional): no example, the example tenants
+        # stay valid as they are
+        self._add_users_sheet(book, samples=False)
         return self._download_workbook(book, TEMPLATE_NAME)
 
 
