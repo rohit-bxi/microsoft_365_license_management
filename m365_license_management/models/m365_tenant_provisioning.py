@@ -9,10 +9,11 @@ the next step that Odoo can run; the steps that need a person (admin consent, GD
 approval, order approval, the users file) are reported as such.
 
 **Run Automatically** (or the option of the customer file): a scheduled action runs every
-step Odoo can run, as the administrator who started it, and stops only where a person is
-needed. A Microsoft error is retried later (5, 15, 60, then 240 minutes); after 5 failed
-runs in a row, or an error that needs a person, the automatic run stops and the
-administrator gets an activity.
+step Odoo can run, as the administrator who started it. A step waiting for a person (an
+approval, a consent, a failed license request...) gives the administrator an activity and is
+checked again every 30 minutes, so the run goes on once the person has acted. A Microsoft
+error is retried later (5, 15, 60, then 240 minutes); after 5 failed runs in a row, or an
+access error, the automatic run stops and the administrator gets an activity.
 
 License verification (``GET /users/{id}/licenseDetails`` and ``GET /users/{id}``): every
 executed license request is checked a few minutes later by a scheduled action (and with
@@ -58,6 +59,8 @@ PLAN_WAITING = ('PendingInput', 'PendingActivation')
 # Service plans still provisioning after this delay are reported, not waited for any more
 PLAN_PENDING_LIMIT = timedelta(hours=24)
 VERIFY_AFTER = timedelta(minutes=2)
+# A mismatch is checked again after this delay: it may have been fixed in Microsoft 365
+RECHECK_AFTER = timedelta(hours=6)
 # A result different from the request is reported only after this delay: Microsoft 365
 # can take a while to apply a license change
 PROPAGATION_DELAY = timedelta(minutes=30)
@@ -99,6 +102,31 @@ class M365LicenseRequestVerification(models.Model):
             ('request_type', 'in', LICENSE_TYPES), ('state', '=', 'done')],
             order='id', limit=1)
 
+    def _failure_settled(self):
+        """Failed license request that needs nothing more: the user is already as requested
+        (local mirror), or the request can never succeed (license of the whole tenant,
+        subscription or user deleted)."""
+        self.ensure_one()
+        if self.state != 'failed' or self.request_type not in LICENSE_TYPES:
+            return False
+        user, sku = self.user_id.sudo(), self.sku_id.sudo()
+        if not user.active or sku.status == 'Deleted':
+            return True
+        has_license = sku in user.sku_ids
+        if self.request_type == 'remove':
+            return not has_license
+        return has_license or (sku.applies_to or 'User') != 'User'
+
+    def _write_verification(self, state, message, log_status):
+        """Store the result; logged only when it changed (rechecks repeat it)."""
+        self.ensure_one()
+        changed = (self.verification_state, self.verification_message) != (state, message)
+        self.write({'verification_state': state, 'verification_message': message,
+                    'verification_date': fields.Datetime.now()})
+        if changed:
+            self.tenant_id._log('verify_license', log_status, "%s: %s" % (self.name, message),
+                                request=self)
+
     @staticmethod
     def _assignment_notes(item, sku_guid):
         """(groups assigning the license, assignment errors) from licenseAssignmentStates."""
@@ -130,10 +158,7 @@ class M365LicenseRequestVerification(models.Model):
                 details = tenant.graph_get_license_details(user.graph_id)
             except M365GraphError as exc:
                 state = 'mismatch' if 'HTTP 404' in str(exc) else 'error'
-                rec.write({'verification_state': state, 'verification_message': str(exc),
-                           'verification_date': fields.Datetime.now()})
-                tenant._log('verify_license', 'failed', "%s: %s" % (rec.name, exc),
-                            request=rec)
+                rec._write_verification(state, str(exc), 'failed')
                 continue
             problems, pending, notes, definitive = [], [], [], False
             if rec.request_type == 'assign' and not item.get('accountEnabled', True):
@@ -157,6 +182,10 @@ class M365LicenseRequestVerification(models.Model):
                         pending.append(plan.get('name'))
                     elif status in PLAN_WAITING:
                         notes.append("%s (%s)" % (plan.get('name'), status))
+            elif found and not groups and sku._is_self_service():
+                # Free self-service license: the user can sign up for it again at any time
+                notes.append(_("%s is a free self-service license: the user took it again",
+                               sku.name))
             elif found:
                 problems.append(_("%(sku)s is still assigned%(how)s.", sku=sku.name, how=_(
                     " through group(s) %s: remove the user from the group, or the license "
@@ -175,17 +204,19 @@ class M365LicenseRequestVerification(models.Model):
                 message = _("Service plans still being provisioned: %s", ", ".join(pending))
             else:
                 state = 'verified'
-                message = (_("%s assigned.", sku.name) if rec.request_type == 'assign'
-                           else _("%s removed.", sku.name))
-                if pending:
-                    notes += ["%s (%s)" % (name, _("still provisioning")) for name in pending]
-                if notes:
-                    message += " " + _("Service plans waiting for the tenant: %s.",
-                                       ", ".join(notes))
-            rec.write({'verification_state': state, 'verification_message': message,
-                       'verification_date': fields.Datetime.now()})
-            tenant._log('verify_license', 'failed' if state == 'mismatch' else 'success',
-                        "%s: %s" % (rec.name, message), request=rec)
+                if rec.request_type == 'assign':
+                    message = _("%s assigned.", sku.name)
+                    if pending:
+                        notes += ["%s (%s)" % (name, _("still provisioning"))
+                                  for name in pending]
+                    if notes:
+                        message += " " + _("Service plans waiting for the tenant: %s.",
+                                           ", ".join(notes))
+                else:
+                    message = (_("%s removed.", sku.name) if not notes
+                               else "%s." % notes[0])
+            rec._write_verification(state, message,
+                                    'failed' if state == 'mismatch' else 'success')
 
     def action_verify(self):
         self._check_admin()
@@ -194,13 +225,19 @@ class M365LicenseRequestVerification(models.Model):
 
     @api.model
     def _cron_verify(self):
-        """Verify the executed requests not verified yet, and the ones still provisioning."""
-        limit = fields.Datetime.now() - VERIFY_AFTER
-        requests = self.search([
-            ('state', '=', 'done'), ('request_type', 'in', ('assign', 'remove')),
-            ('executed_date', '<', limit),
+        """Verify the executed requests not verified yet and the ones still provisioning,
+        then check again the mismatches older than RECHECK_AFTER (fixed since?)."""
+        now = fields.Datetime.now()
+        base = [('state', '=', 'done'), ('request_type', 'in', LICENSE_TYPES),
+                ('executed_date', '<', now - VERIFY_AFTER)]
+        requests = self.search(base + [
             '|', ('verification_state', '=', False), ('verification_state', '=', 'pending'),
         ], limit=200)
+        if len(requests) < 200:
+            requests |= self.search(base + [
+                ('verification_state', 'in', ('mismatch', 'error')),
+                ('verification_date', '<', now - RECHECK_AFTER),
+            ], order='verification_date', limit=200 - len(requests))
         requests._verify()
 
 
@@ -388,7 +425,8 @@ class M365TenantProvisioning(models.Model):
 
     def _latest_license_requests(self):
         """The last assign / remove request of each user and license of the tenant (the
-        earlier ones were replaced by it)."""
+        earlier ones were replaced by it). A failed one that needs nothing more (see
+        _failure_settled) is left out: it would block the provisioning for ever."""
         self.ensure_one()
         requests = self.env['m365.license.request'].sudo().search(
             [('tenant_id', '=', self.id), ('request_type', 'in', LICENSE_TYPES),
@@ -396,7 +434,7 @@ class M365TenantProvisioning(models.Model):
         latest = {}
         for request in requests:
             latest.setdefault((request.user_id.id, request.sku_id.id), request)
-        return requests.browse([r.id for r in latest.values()])
+        return requests.browse([r.id for r in latest.values() if not r._failure_settled()])
 
     def _step_label(self, step):
         return self._fields[step].string.replace("Step: ", "")
@@ -920,7 +958,7 @@ class M365TenantProvisioning(models.Model):
                                      user.name or '-'))
         tenant = self.with_user(user)
         computed = list(STEPS) + ['prov_state', 'prov_summary']
-        waiting, statuses, step = {}, set(), None
+        waiting, statuses, step = {}, {}, None
         try:
             for _pass in range(3):
                 progressed = False
@@ -932,9 +970,10 @@ class M365TenantProvisioning(models.Model):
                     if status == 'progress':
                         progressed = True
                         waiting.pop(step, None)
+                        statuses.pop(step, None)
                     else:
                         waiting[step] = message
-                        statuses.add(status)
+                        statuses[step] = status
                 if not progressed:
                     break
         except M365GraphError as exc:
@@ -953,8 +992,15 @@ class M365TenantProvisioning(models.Model):
             'prov_waiting': "\n".join("%s: %s" % (self._step_label(s), message)
                                       for s, message in waiting.items()) or False,
             'prov_error': False, 'prov_attempts': 0, 'prov_last_run': now,
-            'prov_next_run': now + (AUTO_IDLE if statuses == {'action'} else AUTO_WAIT),
+            'prov_next_run': now + (AUTO_IDLE if set(statuses.values()) == {'action'}
+                                    else AUTO_WAIT),
         })
+        # A person must act: tell the administrator (one to-do per step while it is open)
+        for step_name, status in statuses.items():
+            if status == 'action':
+                self._schedule_prov_activity(
+                    _("Provisioning of %(tenant)s: %(step)s needs action", tenant=self.name,
+                      step=self._step_label(step_name)), waiting[step_name])
         return True
 
     @api.model

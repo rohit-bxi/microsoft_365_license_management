@@ -3,6 +3,13 @@ from datetime import timedelta
 
 from odoo import api, fields, models
 
+# Free licenses users take on their own (self-service sign-up, "viral"): removing them does
+# not stop the user from signing up again
+SELF_SERVICE_PARTS = frozenset({
+    'FLOW_FREE', 'POWERAPPS_DEV', 'POWERAPPS_VIRAL', 'POWER_BI_STANDARD',
+    'RIGHTSMANAGEMENT_ADHOC', 'STREAM', 'CCIBOTS_PRIVPREV_VIRAL',
+})
+
 
 class M365Sku(models.Model):
     """Subscribed SKU of a tenant (license inventory line)."""
@@ -50,6 +57,12 @@ class M365Sku(models.Model):
     def _compute_name(self):
         for rec in self:
             rec.name = rec.product_id.name or rec.sku_part_number
+
+    def _is_self_service(self):
+        """Free self-service (viral) license."""
+        self.ensure_one()
+        part = (self.sku_part_number or '').upper()
+        return part in SELF_SERVICE_PARTS or part.endswith('_VIRAL')
 
     @api.depends('enabled_units', 'consumed_units')
     def _compute_available(self):

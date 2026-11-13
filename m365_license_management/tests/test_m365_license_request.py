@@ -175,7 +175,37 @@ class TestM365LicenseRequest(M365Common):
             req.action_approve()
         self.assertFalse(graph.called)
         self.assertEqual((req.state, req.error_message),
-                         ('failed', 'License operations are disabled for this tenant.'))
+                         ('failed', 'License operations are disabled for tenant Contoso.'))
+
+    def test_approve_and_retry_check_again(self):
+        """Approve and Retry check the request again: the situation may have changed since
+        it was submitted. Approve runs the submitted requests only."""
+        req = self._request()
+        req.action_submit()
+        self.adele.sku_ids = self.sku  # given meanwhile, e.g. in the admin center
+        with patch(GRAPH_PATH, side_effect=graph_stub) as graph:
+            req.with_user(self.approver).action_approve()
+        self.assertFalse(graph.called)
+        self.assertEqual(req.state, 'failed')
+        self.assertIn('already has', req.error_message)
+        self.assertEqual(self._logs('assign_license').status, 'failed')
+        # A failed request is not approved again (Retry), the approver stays
+        with patch(GRAPH_PATH, side_effect=graph_stub) as graph:
+            req.with_user(self.approver).action_approve()
+        self.assertFalse(graph.called)
+        self.assertEqual(req.state, 'failed')
+        # No license left: Retry does not call Microsoft either
+        self.adele.sku_ids = False
+        self.sku.consumed_units = 10
+        with patch(GRAPH_PATH, side_effect=graph_stub) as graph:
+            req.with_user(self.approver).action_retry()
+        self.assertFalse(graph.called)
+        self.assertIn('No available', req.error_message)
+        # Licenses bought: Retry assigns it
+        self.sku.consumed_units = 4
+        with patch(GRAPH_PATH, side_effect=graph_stub):
+            req.with_user(self.approver).action_retry()
+        self.assertEqual(req.state, 'done', req.error_message)
 
     def test_same_tenant(self):
         other = self.env['m365.tenant'].create({
