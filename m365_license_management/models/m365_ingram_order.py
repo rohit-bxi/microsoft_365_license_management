@@ -195,6 +195,11 @@ class M365IngramOrder(models.Model):
                 "Confirm first that tenant %s has a reseller relationship with Ingram Micro "
                 "(Purchasing tab of the tenant): Ingram Micro can only order for the "
                 "customers it is a partner of.", tenant.name))
+        if (not self.create_tenant and not tenant._initial_domain_prefix()
+                and 'microsoft_domain' not in account.vmf_attribute_ids.mapped('name')):
+            raise UserError(_(
+                "The .onmicrosoft.com domain of tenant %s is not known: Ingram Micro needs it "
+                "to find the tenant. Connect the tenant and refresh its domains.", tenant.name))
         if account.require_mca and not tenant._mca_recorded():
             raise UserError(_(
                 "Record first who accepted the Microsoft Customer Agreement for tenant %s, "
@@ -439,8 +444,8 @@ class M365IngramOrder(models.Model):
         if header:
             body['vmfAdditionalAttributes'] = [attr._payload(self) for attr in header]
         line_attrs = account.vmf_attribute_ids.filtered(lambda a: a.level == 'line')
-        # Vendor required info of the plans: the fields that create the tenant
-        required = self._creation_required_info() if self.create_tenant else {}
+        # Vendor required info of the plans: the tenant to create, or the existing tenant
+        required = self._creation_required_info()
         for number, line in enumerate(self.line_ids, start=1):
             plan = line.plan_id
             vals = {'customerLineNumber': str(number), 'quantity': line.quantity}
@@ -451,8 +456,7 @@ class M365IngramOrder(models.Model):
             if line_attrs:
                 vals['vmfAdditionalAttributesLines'] = [attr._payload(self, line)
                                                         for attr in line_attrs]
-            if self.create_tenant:
-                vals.update(self._tenant_creation_line(line, required.get(plan.plan_id)))
+            vals.update(self._vendor_info_line(line, required.get(plan.plan_id)))
             body['lines'].append(vals)
         return body
 

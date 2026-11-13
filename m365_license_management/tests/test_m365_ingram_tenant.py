@@ -238,6 +238,37 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual(body['lines'][0]['subscriptionPeriod'], {'type': 'YEARS', 'duration': 1})
         self.assertEqual(attributes(body)['special_qualifications'], 'StateOwnedEntity')
 
+    def test_existing_tenant_order(self):
+        """An order for an existing tenant tells Ingram Micro which tenant gets the
+        licenses: tenant_preference existing and its .onmicrosoft.com domain."""
+        self.plan._set_terms([{'subscriptionPeriod': '1', 'subscriptionPeriodUnit': 'YEARS'}])
+        order = self._submitted()
+        fake = self._fake()
+        with patch(IM_PATH, side_effect=fake):
+            order.with_user(self.admin).action_approve()
+        self.assertEqual(order.state, 'sent', order.error_message)
+        self.assertEqual(fake.bodies('POST', VRI), [{'products': [{'planID': '438292'}]}])
+        line = fake.bodies('POST', ORDERS)[0]['lines'][0]
+        self.assertEqual((line['planid'], line['subscriptionPeriod']),
+                         ('438292', {'type': 'YEARS', 'duration': 1}))
+        self.assertEqual(attributes({'lines': [line]}), {
+            'tier1_mpn': '5068860', 'tenant_preference': 'existing',
+            'microsoft_domain': 'contoso', 'relationship_url': 'no',
+            'indirect_reseller_domain': 'bxitech.onmicrosoft.com'})
+
+    def test_existing_tenant_without_domain(self):
+        """Without its .onmicrosoft.com domain, Ingram Micro cannot find the tenant: the
+        order is not submitted."""
+        self.tenant.domain_ids.unlink()
+        self.tenant.state = 'error'  # domains not read again from Microsoft 365
+        with self.assertRaisesRegex(UserError, 'onmicrosoft.com domain of tenant Contoso'):
+            self._submitted()
+        # A vendor field gives it
+        self.env['m365.ingram.vmf.attribute'].create({
+            'account_id': self.account.id, 'level': 'header', 'name': 'microsoft_domain',
+            'source': 'fixed', 'value': 'contoso'})
+        self.assertEqual(self._submitted().state, 'submitted')
+
     def test_missing_required_field(self):
         info = copy.deepcopy(REQUIRED_INFO)
         info[0]['vriAdditionalAttributes'][0]['additionalAttributes'].append(

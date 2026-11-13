@@ -89,6 +89,8 @@ class TestM365ApiExtras(HttpCase, M365Common):
                          400)
 
     def test_orders(self):
+        self.env['m365.tenant.domain'].create({
+            'tenant_id': self.tenant.id, 'name': 'contoso.onmicrosoft.com', 'is_initial': True})
         order_body = {'tenant_id': self.tenant.id, 'reason': 'New joiners',
                       'lines': [{'plan_id': '438292', 'quantity': 5}]}
         self.assertEqual(self._api('/orders', self.user_key, 'POST', json=order_body)[0], 403)
