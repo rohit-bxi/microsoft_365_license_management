@@ -122,6 +122,8 @@
         <field name="active" eval="True"/>
     </record>
 
+    <!-- PARTNER CENTER (disabled): subscriptions are bought through Ingram Micro only.
+         Kept inactive (migration 19.0.1.10.2 deactivates it on existing databases). -->
     <record id="ir_cron_m365_pc_orders" model="ir.cron">
         <field name="name">Microsoft 365: Follow Partner Center Orders</field>
         <field name="model_id" ref="model_m365_pc_order"/>
@@ -130,7 +132,7 @@
         <field name="user_id" ref="base.user_root"/>
         <field name="interval_number">15</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
     </record>
 
     <record id="ir_cron_m365_verify_licenses" model="ir.cron">
