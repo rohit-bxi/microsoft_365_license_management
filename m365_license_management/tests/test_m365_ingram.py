@@ -626,7 +626,9 @@ class TestM365IngramGaps(IngramCommon):
         self.assertEqual((len(info['city']), info['postalCode'], info['state']),
                          (25, '560001-123', 'KA'))
         self.tenant.tenant_customer_id.ref = 'CONTOSO-001'
-        self.assertEqual(order._order_body()['endCustomerOrderNumber'], 'CONTOSO-001')
+        with patch(IM_PATH, side_effect=FakeIngram()):
+            body = order._order_body()
+        self.assertEqual(body['endCustomerOrderNumber'], 'CONTOSO-001')
         # Unknown state name: not sent rather than refused
         self.tenant.address_state = 'Somewhere Else'
         self.assertNotIn('state', order._end_user_info())
