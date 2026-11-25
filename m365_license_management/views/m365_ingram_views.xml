@@ -75,6 +75,7 @@
                         </group>
                         <group string="Reseller">
                             <field name="customer_number"/>
+                            <field name="mpn_id"/>
                             <field name="country_code"/>
                             <field name="sender_id"/>
                             <field name="bill_to_address_id"/>
