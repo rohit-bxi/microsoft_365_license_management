@@ -25,6 +25,7 @@ entered as *Vendor Fields* on the account.
 
 Reference: https://developer.ingrammicro.com/reseller
 """
+import logging
 import re
 import urllib.parse
 import time
@@ -37,6 +38,8 @@ from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
 from .m365_tenant import M365GraphError
+
+_logger = logging.getLogger(__name__)
 
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 CATALOG_PAGE_SIZE = 100
@@ -352,9 +355,17 @@ class M365IngramAccount(models.Model):
 
     def action_sync_plans(self):
         self._check_admin()
+        partial = []
         for rec in self:
-            count = rec._sync_plans()
+            count, total, complete = rec._sync_catalog()
             rec.message_post(body=_("%s plan(s) read from the Ingram Micro catalog.", count))
+            if not complete:
+                partial.append(_("%(account)s: %(read)s of %(total)s plan(s)",
+                                 account=rec.name, read=count, total=total or '?'))
+        if partial:
+            return self.env['m365.tenant']._notify(_(
+                "Catalog partly synchronised, Ingram Micro returned the same page again: "
+                "%s. The plans not read are kept.", "; ".join(partial)), 'warning')
         return self.env['m365.tenant']._notify(_("Catalog synchronised."))
 
     def action_view_plans(self):
@@ -485,7 +496,19 @@ class M365IngramAccount(models.Model):
         return plans, term or plans._default_term(), False
 
     def _sync_plans(self):
-        """Read the Microsoft subscriptions of the catalog. :return: number of plans"""
+        """:return: number of plans read from the catalog"""
+        return self._sync_catalog()[0]
+
+    def _sync_catalog(self):
+        """Read the Microsoft subscriptions of the catalog, page by page.
+
+        ``recordsFound`` and ``pageSize`` count plans, while an entry of
+        ``subscriptionCatalog`` may be a group holding several plans: the pages are
+        counted in plans, never in entries (else a page of 100 plans in a few groups
+        ended the synchronisation after the first page).
+
+        :return: (plans read, plans found by Ingram Micro, every page read)
+        """
         self.ensure_one()
         Plan = self.env['m365.ingram.plan'].sudo().with_context(active_test=False)
         existing = {p.plan_id: p for p in Plan.search([('account_id', '=', self.id)])}
@@ -493,16 +516,17 @@ class M365IngramAccount(models.Model):
         for product in self.env['m365.product'].sudo().search([]):
             products.setdefault(self._base_name(product.name), product)
         now = fields.Datetime.now()
-        seen, complete = set(), False
+        seen, complete, total = set(), False, 0
         for page in range(1, CATALOG_MAX_PAGES + 1):
             _status, data = self._im_request('GET', '/resellers/v6/catalog',
                                              params=self._catalog_params(
                                                  pageSize=CATALOG_PAGE_SIZE, pageNumber=page,
                                                  showGroupInfo='false'))
-            entries = data.get('subscriptionCatalog') or []
+            data = data if isinstance(data, dict) else {}
+            page_ids = set()
             for group, item in self._catalog_plans(data):
                 plan_id = str(item['planId'])
-                seen.add(plan_id)
+                page_ids.add(plan_id)
                 vals = {
                     'name': item.get('planName') or plan_id,
                     'description': item.get('planDescription') or False,
@@ -523,15 +547,37 @@ class M365IngramAccount(models.Model):
                     product = products.get(self._base_name(plan.name))
                     if product:
                         plan.write({'product_id': product.id, 'product_suggested': True})
-            total = data.get('recordsFound') or 0
-            if len(entries) < CATALOG_PAGE_SIZE or page * CATALOG_PAGE_SIZE >= total:
+            new = page_ids - seen
+            seen |= page_ids
+            total = self._int(data.get('recordsFound'))
+            size = self._int(data.get('pageSize')) or CATALOG_PAGE_SIZE
+            _logger.info("Ingram Micro catalog of account %s, page %s: %s plan(s), %s new, "
+                         "%s found in all", self.id, page, len(page_ids), len(new), total)
+            if not page_ids:  # past the last page
+                complete = True
+                break
+            if not new:
+                # The same plans again: Ingram Micro does not page this catalog
+                _logger.warning("Ingram Micro returned page %s of the catalog of account %s "
+                                "again: synchronisation stopped at %s of %s plan(s).",
+                                page, self.id, len(seen), total)
+                break
+            if (page * size >= total) if total else len(page_ids) < size:
                 complete = True
                 break
         if complete:  # plans no longer sold
             Plan.browse([p.id for pid, p in existing.items() if pid not in seen]).write(
                 {'active': False})
+        # else the plans not read are kept: they may still be sold
         self.write({'last_catalog_sync': now, 'state': 'connected', 'last_error': False})
-        return len(seen)
+        return len(seen), total, complete
+
+    @staticmethod
+    def _int(value):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
 
 class M365IngramVmfAttribute(models.Model):
