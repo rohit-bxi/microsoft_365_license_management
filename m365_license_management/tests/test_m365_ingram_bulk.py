@@ -94,10 +94,31 @@ class TestM365IngramTerms(IngramBulkCommon):
         plan, term, error = account._match_plan('Microsoft 365 Business Basic (no Teams)')
         self.assertEqual((plan, term.key), (annual, 'P1Y'))  # default period: 1 year
         self.basic._set_terms(periods(('1', 'YEARS')))
+        # Same period: the default plan of the account chooses, else ambiguous
+        plan, _term, error = account._match_plan('Microsoft 365 Business Basic (no Teams)')
+        self.assertEqual((plan, error), (self.basic, False))
+        account.default_plan_id = False
         _plan, _term, error = account._match_plan('Microsoft 365 Business Basic (no Teams)')
         self.assertIn('matches several plans', error)
+        self.assertIn('Write the full plan name', error)
+        # The full name chooses
+        plan, _term, error = account._match_plan(BASIC.replace('MTH', 'ANN'))
+        self.assertEqual((plan, error), (annual, False))
         _plan, _term, error = account._match_plan('Nothing')
         self.assertIn('not found', error)
+
+    def test_match_plan_keeps_name_brackets(self):
+        """"(no Teams)" is part of the name: never the plan with Teams (UAT: Business
+        Basic (no Teams) matched the Business Basic plans)."""
+        Plan = self.env['m365.ingram.plan']
+        with_teams = Plan.create({'account_id': self.account.id, 'plan_id': '81882',
+                                  'name': 'Microsoft 365 Business Basic (NCE COM MTH)'})
+        self.basic.unlink()
+        _plan, _term, error = self.account._match_plan(
+            'Microsoft 365 Business Basic (no Teams)')
+        self.assertIn('not found', error)
+        plan, _term, error = self.account._match_plan('Microsoft 365 Business Basic')
+        self.assertEqual((plan, error), (with_teams, False))
 
     def test_order_without_product(self):
         """A license never bought: the plan is mapped when its licenses arrive."""
