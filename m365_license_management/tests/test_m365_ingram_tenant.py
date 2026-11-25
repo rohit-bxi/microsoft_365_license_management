@@ -307,6 +307,28 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual((order.state, self.new.provision_state), ('sent', 'queued'))
         self.assertEqual(attributes(fake.bodies('POST', ORDERS)[0])['customer_po_ref'], 'PO-77')
 
+    def test_check_reports_vendor_fields(self):
+        """A field Ingram Micro requires and Odoo cannot fill (UAT: tier1_mpn empty in the
+        sandbox) is reported by Check, before any order, with Ingram Micro's description;
+        a vendor field of the account gives it."""
+        info = copy.deepcopy(REQUIRED_INFO)
+        info[0]['vriAdditionalAttributes'][0]['additionalAttributes'][0] = sub(
+            'tier1_mpn', '', attributeDescription='Microsoft Partner Number')
+        fake = self._fake()
+        fake.routes[('POST', VRI)] = info
+        with patch(IM_PATH, side_effect=fake):
+            self._check()
+        self.assertEqual(self.new.provision_state, 'draft')
+        self.assertIn('tier1_mpn (Microsoft Partner Number)', self.new.provision_error)
+        self.assertFalse(self.new.ingram_order_ids)  # no order created
+        self.assertFalse(fake.bodies('POST', ORDERS))
+        self.env['m365.ingram.vmf.attribute'].create({
+            'account_id': self.account.id, 'level': 'header', 'name': 'tier1_mpn',
+            'source': 'fixed', 'value': '5068860'})
+        with patch(IM_PATH, side_effect=fake):
+            self._check()
+        self.assertEqual((self.new.provision_state, self.new.provision_error), ('ready', False))
+
     def test_culture_and_tax_id(self):
         """customer_culture: the culture of the tenant if Ingram Micro offers it, else
         English of its country, else en-US; customer_tax_id: the tenant's, else the Tax ID

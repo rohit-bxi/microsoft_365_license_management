@@ -40,7 +40,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from odoo import _, api, fields, models
+from odoo import Command, _, api, fields, models
 from odoo.exceptions import UserError
 
 from .m365_ingram_account import M365IngramError
@@ -212,6 +212,40 @@ class M365IngramOrderTenant(models.Model):
                 if sub_name:
                     yield sub_name, sub.get('attributeValue')
 
+    @classmethod
+    def _attribute_labels(cls, node, labels):
+        """{attribute name: description of Ingram Micro} of a vendor required info group,
+        e.g. tier1_mpn: Microsoft Partner Number."""
+        if isinstance(node, dict):
+            name = node.get('attributeName') or node.get('attributename')
+            if name and node.get('attributeDescription'):
+                labels.setdefault(name, node['attributeDescription'])
+            for key in ('additionalAttributes', 'choices'):
+                cls._attribute_labels(node.get(key), labels)
+        elif isinstance(node, list):
+            for item in node:
+                cls._attribute_labels(item, labels)
+        return labels
+
+    def _vendor_info_errors(self):
+        """The fields Ingram Micro requires for the plans of the order, checked without
+        sending anything (Check of a new tenant). :return: errors"""
+        self.ensure_one()
+        try:
+            required = self.account_id._vendor_required_info(self.line_ids.plan_id)
+        except M365IngramError as exc:  # the order then sends the fields known to Odoo
+            _logger.info("Vendor required info of tenant %s not read: %s",
+                         self.tenant_id.id, exc)
+            return []
+        errors = []
+        for line in self.line_ids:
+            try:
+                self._vendor_info_line(line, required.get(line.plan_id.plan_id))
+            except M365IngramError as exc:
+                if str(exc) not in errors:
+                    errors.append(str(exc))
+        return errors
+
     @staticmethod
     def _choice_value(name, value, given):
         """The value written as Ingram Micro lists it among the choices of the attribute
@@ -237,6 +271,9 @@ class M365IngramOrderTenant(models.Model):
         """
         values = self._vendor_info_values()
         preference = values[TENANT_PREFERENCE]
+        labels = {}
+        for group in (required or {}).get('vriAdditionalAttributes') or []:
+            self._attribute_labels(group, labels)
         overrides = {attr.name: attr._payload(self, line)['attributeValue']
                      for attr in self.account_id.vmf_attribute_ids}
         groups, missing = [], []
@@ -271,17 +308,17 @@ class M365IngramOrderTenant(models.Model):
             if not self.create_tenant and not overrides.get('microsoft_domain',
                                                             values['microsoft_domain']):
                 missing.append('microsoft_domain')  # else Ingram cannot find the tenant
+        missing = ", ".join("%s (%s)" % (name, labels[name]) if labels.get(name) else name
+                            for name in sorted(set(missing)))
         if missing and self.create_tenant:
             raise M365IngramError(_(
                 "Ingram Micro requires %s to create the tenant: complete the tenant, or add "
-                "the field as a Vendor Field of the Ingram Micro account.",
-                ", ".join(sorted(set(missing)))))
+                "the field as a Vendor Field of the Ingram Micro account.", missing))
         if missing:
             raise M365IngramError(_(
                 "Ingram Micro requires %(fields)s to order for tenant %(tenant)s: refresh its "
                 "domains (its .onmicrosoft.com domain), or add the field as a Vendor Field of "
-                "the Ingram Micro account.", fields=", ".join(sorted(set(missing))),
-                tenant=self.tenant_id.name))
+                "the Ingram Micro account.", fields=missing, tenant=self.tenant_id.name))
         return groups
 
     @staticmethod
@@ -387,12 +424,26 @@ class M365TenantIngramCreation(models.Model):
                             "ID of its customer: Ingram Micro sends it to Microsoft to create "
                             "the tenant.",
                             self._fields['organization_registration_number'].string))
-        if not self._ingram_creation_order():
+        order = self._ingram_creation_order()
+        if not order:
             if not (self.requested_subscriptions or '').strip():
                 errors.append(_("Enter the Subscriptions to Buy: Ingram Micro creates the "
                                 "tenant with the first order."))
-            else:
-                errors += self._parse_requested_ingram()[1]
+                return errors
+            lines, line_errors = self._parse_requested_ingram()
+            if line_errors:
+                return errors + line_errors
+            account = self.env['m365.ingram.account']._get_default()
+            order = self.env['m365.ingram.order'].new({
+                'tenant_id': self.id, 'account_id': account.id, 'create_tenant': True,
+                'line_ids': [Command.create({'plan_id': plan.id, 'term_id': term.id or False,
+                                             'quantity': qty})
+                             for plan, term, qty in lines],
+            })
+        if not errors:
+            # What the order will send: the fields Ingram Micro requires (e.g. tier1_mpn)
+            # are reported now, not when the order fails
+            errors += order._vendor_info_errors()
         return errors
 
     def _check_with_microsoft(self):
