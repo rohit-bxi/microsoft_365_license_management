@@ -89,11 +89,16 @@ class M365Tenant(models.Model):
         string="Address Confirmed",
         help="Create the tenant with the address as entered even when Microsoft cannot "
              "verify it.")
-    culture = fields.Char(string="Culture", help="e.g. en-US or en-IN.")
+    culture = fields.Char(
+        string="Culture",
+        help="e.g. en-US or en-IN, sent to Ingram Micro (customer_culture). Empty: English "
+             "of the country of the tenant, e.g. en-IN.")
     language = fields.Char(string="Language", help="Two letter code, e.g. en.")
     organization_registration_number = fields.Char(
-        string="Organization Registration Number",
-        help="Required by Microsoft in some countries, e.g. India, Brazil or Poland.")
+        string="Customer Tax ID",
+        help="Tax ID of the customer, e.g. the GSTIN in India, sent to Ingram Micro "
+             "(customer_tax_id) to create the tenant. Empty: the Tax ID of the customer of "
+             "the tenant.")
     enable_gdap = fields.Boolean(string="Create GDAP Relationship", default=True)
     custom_domains = fields.Char(
         string="Custom Domains",

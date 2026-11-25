@@ -234,8 +234,11 @@
                                     <field name="contact_email" widget="email" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="contact_phone" widget="phone" required="tenant_type == 'new'"
                                            readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="organization_registration_number"
+                                           readonly="provision_state in ('queued', 'done')"/>
+                                    <field name="culture" placeholder="e.g. en-IN"
+                                           readonly="provision_state in ('queued', 'done')"/>
                                     <!-- PARTNER CENTER (disabled)
-                                    <field name="culture" readonly="provision_state in ('queued', 'done')"/>
                                     <field name="language" readonly="provision_state in ('queued', 'done')"/>
                                     -->
                                 </group>

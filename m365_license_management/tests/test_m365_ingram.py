@@ -346,6 +346,8 @@ class TestM365Ingram(IngramCommon):
                        'vriAdditionalAttributes': [{'vendorName': 'Microsoft',
                                                     'additionalAttributes': [
                            {'attributeName': 'tenant_preference', 'attributeValue': 'existing'},
+                           {'attributeName': 'MCA_Agreement_Acceptance',
+                            'attributeValue': 'yes'},
                            {'attributeName': 'microsoft_domain', 'attributeValue': 'contoso'},
                            {'attributeName': 'relationship_url', 'attributeValue': 'no'}]}]}],
         }])
