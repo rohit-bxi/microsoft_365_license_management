@@ -45,6 +45,8 @@ ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 CATALOG_PAGE_SIZE = 100
 CATALOG_MAX_PAGES = 100
 PLAN_SUFFIX_RE = re.compile(r'\s*\([^)]*\)\s*$')
+# Suffix of the Ingram Micro plan names, e.g. (NCE COM MTH), (NCE COM BAS PER 1TM)
+CATALOG_SUFFIX_RE = re.compile(r'\s*\(\s*NCE\b[^)]*\)\s*$', re.I)
 TERM_KEYS = [('P1M', '1 Month'), ('P1Y', '1 Year'), ('P3Y', '3 Years')]
 # "<plan> 1 Year", "<plan> 12 months", "<plan> P1Y": the period at the end of a plan text
 TERM_SUFFIX_RE = re.compile(r'^(?P<name>.+?)\s+(?:(?P<iso>P\d+[MY])|(?P<n>\d+)\s*'
@@ -449,6 +451,12 @@ class M365IngramAccount(models.Model):
         """``Microsoft 365 E3 (NCE COM MTH)`` -> ``microsoft 365 e3``"""
         return PLAN_SUFFIX_RE.sub('', name or '').strip().lower()
 
+    @staticmethod
+    def _base_name_of_text(text):
+        """Name typed by a user without its catalog suffix only: ``Microsoft 365 E3 (NCE COM
+        MTH)`` -> ``microsoft 365 e3``, ``Microsoft 365 Business Basic (no Teams)`` kept."""
+        return CATALOG_SUFFIX_RE.sub('', text or '').strip().lower()
+
     def _match_plan(self, text):
         """Plan named by a text of the customer file: plan ID, vendor or Ingram part number
         (e.g. CFQ7TTC0LH18:000P), plan name, or plan name without its (NCE ...) suffix,
@@ -471,10 +479,11 @@ class M365IngramAccount(models.Model):
         if not plans:
             plans = Plan.search(domain + [('name', '=ilike', text)])
         if not plans:
-            # Name without the (NCE ...) suffix; the text may end in brackets itself, e.g.
-            # "Microsoft 365 Business Basic (no Teams)"
+            # Name without the (NCE ...) suffix of the catalog. Only such a suffix is taken
+            # off the text: brackets of the name itself stay, else "Microsoft 365 Business
+            # Basic (no Teams)" would match the plans with Teams
             candidates = Plan.search(domain)
-            for wanted_name in (text.lower(), self._base_name(text)):
+            for wanted_name in dict.fromkeys((text.lower(), self._base_name_of_text(text))):
                 plans = candidates.filtered(lambda p: self._base_name(p.name) == wanted_name)
                 if plans:
                     break
@@ -485,10 +494,17 @@ class M365IngramAccount(models.Model):
             # One plan per period (e.g. NCE COM MTH and NCE COM ANN): the period chooses
             by_term = plans.filtered(lambda p: wanted in p.term_ids.mapped('key'))
             plans = by_term if len(by_term) == 1 else plans
+        if len(plans) > 1 and self.default_plan_id in plans:
+            # Same period for both (e.g. annual commitment billed monthly or yearly): the
+            # default plan of the account chooses
+            plans = self.default_plan_id
         if len(plans) > 1:
-            return Plan, Term, _("\"%(plan)s\" matches several plans: %(list)s. Use the plan "
-                                 "ID or the part number.", plan=text, list="; ".join(
-                                     "%s (%s)" % (p.display_name, p.plan_id) for p in plans))
+            return Plan, Term, _(
+                "\"%(plan)s\" matches several plans: %(list)s. Write the full plan name (e.g. "
+                "\"%(example)s = 10\"), the plan ID or the part number, or choose one of them "
+                "as Default Plan of the Ingram Micro account.", plan=text,
+                example=plans[0].name, list="; ".join(
+                    "%s (%s)" % (p.display_name, p.plan_id) for p in plans))
         term = plans.term_ids.filtered(lambda t: t.key == wanted)[:1]
         if key and not term and plans.term_ids:
             return Plan, Term, _("%(plan)s is not sold for %(period)s.", plan=plans.name,
