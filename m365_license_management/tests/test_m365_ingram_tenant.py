@@ -9,7 +9,7 @@ from odoo import fields
 from odoo.exceptions import UserError
 from odoo.tests import tagged
 
-from ..models.m365_ingram_account import M365IngramError
+from ..models.m365_ingram_account import M365IngramAuthError, M365IngramError
 from .common import MODELS, http_response
 from .test_m365_ingram import IM_PATH, ORDERS, FakeIngram, IngramCommon
 
@@ -110,9 +110,11 @@ class TestM365IngramTenant(IngramCommon):
                                 ('POST', ORDERS): {'confirmationNumber': 'C-1001'}},
                                **routes))
 
-    def _check(self, tenant=None, used=False):
+    def _check(self, tenant=None, used=False, fake=None):
+        """Check, Ingram Micro answering the vendor required info (``fake``)."""
         tenant = (tenant or self.new).with_user(self.admin)
-        with patch(LOOKUP, return_value=used) as lookup:
+        with patch(LOOKUP, return_value=used) as lookup, \
+                patch(IM_PATH, side_effect=fake or self._fake()):
             tenant.action_check()
         return lookup
 
@@ -201,6 +203,8 @@ class TestM365IngramTenant(IngramCommon):
     # Order creating the tenant
     # ------------------------------------------------------------------
     def test_create(self):
+        # Ingram Micro refuses a line without them (UAT, HTTP 400): from the plan details
+        self.plan.write({'resource_id': '2291651', 'billing_period': '1 month'})
         self._check()
         fake, action = self._create()
         order = self.new.ingram_creation_order_id
@@ -216,6 +220,8 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual((line['planid'], line['quantity'], line['ingramPartNumber']),
                          ('438292', 5, 'MS-E3-M'))
         self.assertNotIn('subscriptionPeriod', line)  # the plan has no period
+        self.assertEqual((line['resourceId'], line['billingPeriod']),
+                         ('2291651', {'type': 'MONTHS', 'duration': 1}))
         group = line['vriAdditionalAttributes'][0]
         self.assertEqual((group['vendorName'], group['productId']),
                          ('Microsoft', 'PRD-814-505-018'))
@@ -316,8 +322,7 @@ class TestM365IngramTenant(IngramCommon):
             'tier1_mpn', '', attributeDescription='Microsoft Partner Number')
         fake = self._fake()
         fake.routes[('POST', VRI)] = info
-        with patch(IM_PATH, side_effect=fake):
-            self._check()
+        self._check(fake=fake)
         self.assertEqual(self.new.provision_state, 'draft')
         self.assertIn('tier1_mpn (Microsoft Partner Number)', self.new.provision_error)
         self.assertFalse(self.new.ingram_order_ids)  # no order created
@@ -325,9 +330,51 @@ class TestM365IngramTenant(IngramCommon):
         self.env['m365.ingram.vmf.attribute'].create({
             'account_id': self.account.id, 'level': 'header', 'name': 'tier1_mpn',
             'source': 'fixed', 'value': '5068860'})
-        with patch(IM_PATH, side_effect=fake):
-            self._check()
+        self._check(fake=fake)
         self.assertEqual((self.new.provision_state, self.new.provision_error), ('ready', False))
+        # Ingram Micro unreachable or login refused (UAT): not Ready, the order would fail
+        self.new.action_reset_creation()
+        self.new.provision_state = 'draft'
+        fake.routes[('POST', VRI)] = M365IngramError(
+            'Ingram Micro authentication failed. HTTP 500: Invalid client identifier', 500)
+        self._check(fake=fake)
+        self.assertEqual(self.new.provision_state, 'draft')
+        self.assertIn('could not tell which fields', self.new.provision_error)
+        # No vendor required info for the plan (404): the fields known to Odoo are sent
+        fake.routes[('POST', VRI)] = M365IngramError('HTTP 404: not found', 404)
+        self._check(fake=fake)
+        self.assertEqual(self.new.provision_state, 'ready')
+
+    def test_login_refused(self):
+        """Ingram Micro refusing the login (UAT: production credentials, HTTP 500 Invalid
+        client identifier): the order is not sent with guessed fields, and it is not taken
+        for an order Ingram Micro may have received: it can be cancelled."""
+        self._check()
+        refused = M365IngramAuthError(
+            'Ingram Micro authentication failed. HTTP 500: Invalid client identifier', 500)
+        fake = self._fake()
+        fake.routes[('POST', VRI)] = refused
+        self._create(fake)
+        order = self.new.ingram_creation_order_id
+        self.assertEqual((order.state, order.send_attempted), ('failed', False))
+        self.assertIn('Invalid client identifier', order.error_message)
+        self.assertFalse(fake.bodies('POST', ORDERS))
+        # Refused at the order call itself (token renewed then refused): not sent either
+        fake = self._fake()
+        fake.routes[('POST', ORDERS)] = refused
+        with patch(IM_PATH, side_effect=fake):
+            order.with_user(self.admin).action_retry()
+        self.assertEqual((order.state, order.send_attempted), ('failed', False))
+        order.with_user(self.admin).action_cancel()
+        self.assertEqual(order.state, 'cancelled')
+
+    def test_billing_period(self):
+        Order = self.env['m365.ingram.order']
+        self.assertEqual(Order._billing_period('1 month'), {'type': 'MONTHS', 'duration': 1})
+        self.assertEqual(Order._billing_period('1 YEARS'), {'type': 'YEARS', 'duration': 1})
+        self.assertEqual(Order._billing_period('12 Months'), {'type': 'MONTHS', 'duration': 12})
+        self.assertFalse(Order._billing_period('P1M'))
+        self.assertFalse(Order._billing_period(False))
 
     def test_culture_and_tax_id(self):
         """customer_culture: the culture of the tenant if Ingram Micro offers it, else

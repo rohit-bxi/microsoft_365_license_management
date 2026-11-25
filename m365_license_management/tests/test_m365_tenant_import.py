@@ -278,6 +278,21 @@ class TestM365TenantImport(TransactionCase):
         self.assertEqual(tenants.partner_account_id, self.account)
         self.assertFalse(any(tenants.mapped('tenant_id')))
 
+    def test_import_new_tax_id_and_culture(self):
+        """TaxId and Culture are read; the customer created for the tenant gets the tax
+        ID (UAT: it had none)."""
+        wizard = self._new_wizard(
+            NEW_HEADER.rstrip('\n') + ',TaxId,Culture\n'
+            + 'Fabrikam Inc,FabrikamInc,Lee,Gu,lee.gu@fabrikam.com,+1 425 555 0100,1 Main St,,'
+              'Redmond,WA,98052,US,91-1144442,en-US\n')
+        wizard.action_validate()
+        self.assertEqual(wizard.error_count, 0, wizard.line_ids.mapped('message'))
+        action = wizard.action_import()
+        tenant = self.env['m365.tenant'].search(action['params']['next']['domain'])
+        self.assertEqual((tenant.organization_registration_number, tenant.culture),
+                         ('91-1144442', 'en-US'))
+        self.assertEqual(tenant.tenant_customer_id.vat, '91-1144442')
+
     def test_import_new_errors(self):
         self.env['m365.tenant'].create({'tenant_type': 'new', 'name': 'Adatum',
                                         'domain': 'adatum', 'partner_account_id': self.account.id})

@@ -116,6 +116,14 @@ class M365PortalCase(TransactionCase):
             'tenant_type': 'existing', 'name': 'Other Fabrikam',
             'domain': 'other-fabrikam.com', 'tenant_id': TENANT_2, 'client_id': CLIENT}])
 
+    def setUp(self):
+        super().setUp()
+        # Check asks Ingram Micro for the vendor required info of the plans: answered by
+        # default (a test patching IM_PATH itself overrides it)
+        patcher = patch(IM_PATH, side_effect=ingram())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _tenants(self, user=None):
         return self.env['m365.tenant'].search(
             [('portal_user_id', '=', (user or self.owner).id)], order='id')

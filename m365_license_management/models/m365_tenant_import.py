@@ -732,6 +732,7 @@ class M365TenantImportWizard(models.TransientModel):
             if not customer:
                 customer = Customer.create({
                     'name': tenant.name, 'email': tenant.contact_email or False,
+                    'vat': tenant.organization_registration_number or False,
                     'phone': tenant.contact_phone or False,
                     'street': tenant.address_line1 or False,
                     'street2': tenant.address_line2 or False, 'city': tenant.city or False,
