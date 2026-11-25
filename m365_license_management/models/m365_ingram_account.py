@@ -79,6 +79,11 @@ class M365IngramError(M365GraphError):
 NO_API_PRODUCT = 'InvalidAPICallAsNoApiProductMatchFound'
 
 
+class M365IngramNoProduct(M365IngramError):
+    """The gateway refused the call (no API product of the app for its path): it never
+    reached Ingram Micro."""
+
+
 class M365IngramTimeout(M365IngramError):
     """Ingram Micro did not answer: the call may have been executed."""
 
@@ -346,7 +351,8 @@ class M365IngramAccount(models.Model):
                 time.sleep(min(max(wait, 1), 30))
                 continue
             if resp.status_code >= 400 and resp.status_code not in expect:
-                raise M365IngramError(self._format_error(resp), resp.status_code)
+                error = M365IngramNoProduct if NO_API_PRODUCT in resp.text else M365IngramError
+                raise error(self._format_error(resp), resp.status_code)
             try:
                 data = resp.json() if resp.content else {}
             except ValueError:

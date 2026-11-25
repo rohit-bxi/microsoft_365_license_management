@@ -34,7 +34,8 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import config
 
-from .m365_ingram_account import M365IngramAuthError, M365IngramError, M365IngramTimeout
+from .m365_ingram_account import (M365IngramAuthError, M365IngramError, M365IngramNoProduct,
+                                  M365IngramTimeout)
 from .m365_tenant import M365GraphError
 
 _logger = logging.getLogger(__name__)
@@ -499,7 +500,16 @@ class M365IngramOrder(models.Model):
         try:
             if self.send_attempted:
                 # The last call got no answer: the order may exist at Ingram Micro
-                found = self._find_at_ingram()
+                try:
+                    found = self._find_at_ingram()
+                except M365IngramNoProduct as exc:
+                    # The app cannot search the orders: without this, Retry would fail
+                    # forever. Sent again: Ingram Micro refuses a PO number twice.
+                    found = []
+                    self.message_post(body=Markup("<p>%s</p>") % escape(_(
+                        "Ingram Micro could not be searched for %(po)s (%(error)s). Sent "
+                        "again: Ingram Micro refuses a PO number it already received.",
+                        po=self.name, error=exc)))
                 if found:
                     self._apply_found(found, _("found at Ingram Micro"))
                     return True
