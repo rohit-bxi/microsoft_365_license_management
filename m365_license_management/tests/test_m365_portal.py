@@ -36,16 +36,17 @@ NEW = {'name': 'Portal Adatum', 'domain': 'PortalAdatum', 'contact_first_name': 
        'address_state': 'KA', 'postal_code': '560001', 'country_id': 'IN',
        'requested_subscriptions': 'Microsoft 365 E3 (NCE COM MTH) = 5',
        'mca_first_name': 'Adele', 'mca_last_name': 'Vance',
-       'mca_email': 'adele.vance@adatum.com'}
-# PARTNER CENTER (disabled): 'organization_registration_number', 'culture', 'language'
+       'mca_email': 'adele.vance@adatum.com',
+       'organization_registration_number': '29AAACA1234A1Z5'}
+# PARTNER CENTER (disabled): 'language'
 
 EXISTING_HEADER = ('Tenant Name,Primary Domain,Directory (Tenant) ID,Application (Client) ID,'
                    'Client Secret\n')
 NEW_HEADER = ('CompanyName,Domain,FirstName,LastName,Email,PhoneNumber,AddressLine1,City,'
               'State,PostalCode,Country,Subscriptions,AgreementFirstName,AgreementLastName,'
-              'AgreementEmail\n')
+              'AgreementEmail,TaxId\n')
 NEW_ROW = ('Bulk C,bulkc,Adele,Vance,adele@c.com,+91 80 1,1 MG Road,Bengaluru,KA,560001,IN,'
-           'Microsoft 365 E3 (NCE COM MTH) = 5,Adele,Vance,adele@c.com\n')
+           'Microsoft 365 E3 (NCE COM MTH) = 5,Adele,Vance,adele@c.com,29AAACB1234A1Z5\n')
 
 
 def ingram():

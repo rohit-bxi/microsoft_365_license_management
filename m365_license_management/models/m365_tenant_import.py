@@ -97,10 +97,11 @@ NEW_COLUMNS = [
     ('address_state', 'text', False),
     ('postal_code', 'text', True),
     ('country_id', 'country', True),
+    # Sent to Ingram Micro (customer_tax_id, customer_culture)
+    ('organization_registration_number', 'text', False),
+    ('culture', 'text', False),
     # PARTNER CENTER (disabled): billing profile of the Partner Center customer
-    # ('culture', 'text', False),
     # ('language', 'text', False),
-    # ('organization_registration_number', 'text', False),
     ('requested_subscriptions', 'text', False),
     ('custom_domains', 'domains', False),
     ('mca_first_name', 'text', False),
@@ -115,26 +116,32 @@ NEW_HEADERS = {
     'contact_last_name': 'LastName', 'contact_email': 'Email', 'contact_phone': 'PhoneNumber',
     'address_line1': 'AddressLine1', 'address_line2': 'AddressLine2', 'city': 'City',
     'address_state': 'State', 'postal_code': 'PostalCode', 'country_id': 'Country',
+    'organization_registration_number': 'TaxId', 'culture': 'Culture',
     'requested_subscriptions': 'Subscriptions',
     # PARTNER CENTER (disabled)
-    # 'culture': 'Culture', 'language': 'Language',
-    # 'organization_registration_number': 'OrganizationRegistrationNumber',
+    # 'language': 'Language',
     'custom_domains': 'CustomDomains',
     'mca_first_name': 'AgreementFirstName', 'mca_last_name': 'AgreementLastName',
     'mca_email': 'AgreementEmail', 'mca_phone': 'AgreementPhone', 'mca_date': 'AgreementDate',
     'ingram_relationship': 'IngramRelationship',
 }
 # Other accepted headers of the new tenant columns (normalised)
-NEW_ALIASES = {'initialdomain': 'domain', 'initial domain': 'domain'}
+NEW_ALIASES = {
+    'initialdomain': 'domain', 'initial domain': 'domain',
+    'tax id': 'organization_registration_number', 'gstin': 'organization_registration_number',
+    'customertaxid': 'organization_registration_number',
+    'organizationregistrationnumber': 'organization_registration_number',
+    'organization registration number': 'organization_registration_number',
+}
 # Columns of the creation through Partner Center (disabled): accepted, not read
-NEW_IGNORED = {'culture', 'language', 'organizationregistrationnumber',
-               'organization registration number'}
+NEW_IGNORED = {'language'}
 NEW_TEMPLATE_NAME = 'm365_customers_template.xlsx'
 NEW_SAMPLE = {
     'name': 'Contoso Ltd', 'domain': 'contosoltd', 'contact_first_name': 'Adele',
     'contact_last_name': 'Vance', 'contact_email': 'adele.vance@contoso.com',
     'contact_phone': '+91 80 4000 1000', 'address_line1': '1 MG Road', 'address_line2': '',
     'city': 'Bengaluru', 'address_state': 'KA', 'postal_code': '560001', 'country_id': 'IN',
+    'organization_registration_number': '29ABCDE1234F1Z5', 'culture': 'en-IN',
     'requested_subscriptions': 'Microsoft 365 Business Basic (no Teams) = 10',
     'custom_domains': 'contoso-example.com', 'mca_first_name': 'Adele',
     'mca_last_name': 'Vance', 'mca_email': 'adele.vance@contoso.com', 'mca_phone': '',

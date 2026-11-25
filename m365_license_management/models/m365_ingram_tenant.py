@@ -57,6 +57,10 @@ OPEN_STATES = ('submitted', 'sending', 'sent', 'confirmed', 'delivered')
 ACCEPTED_STATES = ('sent', 'confirmed', 'delivered')
 # Choice of the new tenant in the vendor required info
 TENANT_PREFERENCE = 'tenant_preference'
+# Confirmation of the Microsoft Customer Agreement by the partner (choices Yes,No), besides
+# the mca_acceptance of a new tenant
+MCA_CONFIRMATION = 'MCA_Agreement_Acceptance'
+DEFAULT_CULTURE = 'en-US'
 
 
 class M365IngramAccountTenant(models.Model):
@@ -153,6 +157,9 @@ class M365IngramOrderTenant(models.Model):
         tenant = self.tenant_id
         return {
             TENANT_PREFERENCE: 'new',
+            MCA_CONFIRMATION: 'yes' if tenant._mca_recorded() else '',
+            'customer_culture': tenant._ingram_culture(),
+            'customer_tax_id': tenant._ingram_tax_id(),
             'microsoft_domain': (tenant.domain or '').split('.')[0],
             'effective_address': tenant.address_line1 or '',
             'effective_city': tenant.city or '',
@@ -175,6 +182,7 @@ class M365IngramOrderTenant(models.Model):
         tenant = self.tenant_id
         return {
             TENANT_PREFERENCE: 'existing',
+            MCA_CONFIRMATION: 'yes' if tenant._mca_recorded() else '',
             'microsoft_domain': tenant._initial_domain_prefix(),
             # The reseller relationship request is needed only when there is none yet
             'relationship_url': 'no' if tenant.ingram_relationship else 'yes',
@@ -204,6 +212,22 @@ class M365IngramOrderTenant(models.Model):
                 if sub_name:
                     yield sub_name, sub.get('attributeValue')
 
+    @staticmethod
+    def _choice_value(name, value, given):
+        """The value written as Ingram Micro lists it among the choices of the attribute
+        (``given``, e.g. "Yes,No": ``yes`` -> ``Yes``). A culture Ingram Micro does not
+        offer becomes en-US, else its first one."""
+        choices = [c.strip() for c in str(given or '').split(',') if c.strip()]
+        if len(choices) < 2 or not value:
+            return value
+        match = next((c for c in choices if c.lower() == str(value).lower()), None)
+        if match:
+            return match
+        if name == 'customer_culture':
+            return next((c for c in choices if c.lower() == DEFAULT_CULTURE.lower()),
+                        choices[0])
+        return value
+
     def _vendor_info_attributes(self, line, required):
         """``vriAdditionalAttributes`` of a line: the new tenant it creates, or the existing
         tenant receiving the licenses.
@@ -227,6 +251,7 @@ class M365IngramOrderTenant(models.Model):
                     value = values[name]
                 else:  # e.g. tier1_mpn; a list of choices ("yes,no") is not a value
                     value = '' if ',' in str(given or '') else str(given or '')
+                value = self._choice_value(name, value, given)
                 if not value:
                     missing.append(name)
                 attributes.append({'attributeName': name, 'attributeValue': value})
@@ -309,6 +334,22 @@ class M365TenantIngramCreation(models.Model):
             name = rec.domain
         return name.split('.')[0] if name else ''
 
+    def _ingram_culture(self):
+        """Culture of the customer (``customer_culture``), e.g. en-IN: the one of the
+        tenant, else English of its country."""
+        self.ensure_one()
+        if (self.culture or '').strip():
+            return self.culture.strip()
+        return 'en-%s' % self.country_id.code if self.country_id.code else DEFAULT_CULTURE
+
+    def _ingram_tax_id(self):
+        """Tax ID of the customer (``customer_tax_id``): the one of the tenant, else the Tax
+        ID of its customer or of the company of that customer."""
+        self.ensure_one()
+        customer = self.sudo().tenant_customer_id
+        return ((self.organization_registration_number or '').strip()
+                or (customer.vat or '').strip() or (customer.parent_id.vat or '').strip())
+
     def _ingram_creation_order(self):
         """Order creating the tenant: the latest one not cancelled nor rejected."""
         self.ensure_one()
@@ -341,6 +382,11 @@ class M365TenantIngramCreation(models.Model):
         if not self._mca_recorded():
             errors.append(_("Record who accepted the Microsoft Customer Agreement, and when: "
                             "Ingram Micro sends it to Microsoft to create the tenant."))
+        if not self._ingram_tax_id():
+            errors.append(_("%s is required (e.g. the GSTIN in India), on the tenant or as Tax "
+                            "ID of its customer: Ingram Micro sends it to Microsoft to create "
+                            "the tenant.",
+                            self._fields['organization_registration_number'].string))
         if not self._ingram_creation_order():
             if not (self.requested_subscriptions or '').strip():
                 errors.append(_("Enter the Subscriptions to Buy: Ingram Micro creates the "

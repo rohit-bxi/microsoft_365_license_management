@@ -24,7 +24,7 @@ def sub(name, value='', **extra):
     return dict({'attributeName': name, 'attributeValue': value, 'choices': []}, **extra)
 
 
-# Vendor required info of a Microsoft plan, as in the Ingram Micro specification
+# Vendor required info of a Microsoft plan, as Ingram Micro returns it (UAT, Nov 2026)
 REQUIRED_INFO = [{
     'planId': '438292', 'planName': 'Microsoft 365 E3 (NCE COM MTH)', 'responseMessages': [],
     'vmfAdditionalAttributes': [],
@@ -34,12 +34,14 @@ REQUIRED_INFO = [{
             sub('tier1_mpn', '5068860'),
             sub('tenant_preference', 'new,existing', choices=[
                 {'attributeValue': 'new', 'choices': [
+                    sub('customer_culture', 'en-US,en-IN,hi-IN'),
                     sub('microsoft_domain', 'onmicrosoft.com'),
                     sub('effective_address'), sub('effective_city'), sub('effective_state'),
                     sub('effective_postal_code'), sub('effective_country'),
                     sub('mca_acceptance', 'yes,no'), sub('first_name_agreement'),
                     sub('last_name_agreement'), sub('email_address_agreement'),
-                    sub('agreement_date'), sub('effective_phonenumber'),
+                    sub('agreement_date'), sub('customer_tax_id'),
+                    sub('effective_phonenumber'),
                     sub('partner_on_record_attestation_accepted', 'attestation_accepted'),
                     sub('special_qualifications', 'None,StateOwnedEntity'),
                     sub('address_approved_by_user', 'approved'),
@@ -49,6 +51,7 @@ REQUIRED_INFO = [{
                 ]},
             ]),
             sub('indirect_reseller_domain', 'bxitech.onmicrosoft.com'),
+            sub('MCA_Agreement_Acceptance', 'Yes,No'),
         ],
     }],
 }]
@@ -56,6 +59,7 @@ REQUIRED_INFO = [{
 EXPECTED_ATTRIBUTES = {
     'tier1_mpn': '5068860',
     'tenant_preference': 'new',
+    'customer_culture': 'en-IN',
     'microsoft_domain': 'fabrikam',
     'effective_address': '2 Residency Road',
     'effective_city': 'Bengaluru',
@@ -67,11 +71,13 @@ EXPECTED_ATTRIBUTES = {
     'last_name_agreement': 'Wilber',
     'email_address_agreement': 'alex@fabrikam.com',
     'agreement_date': '11-10-2026',
+    'customer_tax_id': '29AAACF1234A1Z5',
     'effective_phonenumber': '+91 80 5555 0100',
     'partner_on_record_attestation_accepted': 'attestation_accepted',
     'special_qualifications': 'None',
     'address_approved_by_user': 'approved',
     'indirect_reseller_domain': 'bxitech.onmicrosoft.com',
+    'MCA_Agreement_Acceptance': 'Yes',
 }
 
 
@@ -96,6 +102,7 @@ class TestM365IngramTenant(IngramCommon):
             'mca_accepted': True, 'mca_first_name': 'Alex', 'mca_last_name': 'Wilber',
             'mca_email': 'alex@fabrikam.com', 'mca_date': fields.Date.to_date('2026-11-10'),
             'requested_subscriptions': 'Microsoft 365 E3 (NCE COM MTH) = 5',
+            'organization_registration_number': '29AAACF1234A1Z5',
         })
 
     def _fake(self, **routes):
@@ -147,16 +154,19 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual(self.new.provision_error, 'Contact Phone is required.')
         # What Ingram Micro needs: checked once the data is valid
         self.new.write({'contact_phone': '+91 80 5555 0100', 'mca_accepted': False,
-                        'requested_subscriptions': 'Unknown Plan = 2', 'address_state': False})
+                        'requested_subscriptions': 'Unknown Plan = 2', 'address_state': False,
+                        'organization_registration_number': False})
         lookup = self._check()
         error = self.new.provision_error
         self.assertEqual(self.new.provision_state, 'draft')
         self.assertIn('State / Region is required', error)  # India has states
         self.assertIn('Microsoft Customer Agreement', error)
         self.assertIn('Plan "Unknown Plan" not found', error)
+        self.assertIn('Customer Tax ID is required', error)
         self.assertFalse(lookup.called)
 
         self.new.write({'mca_accepted': True, 'address_state': 'KA',
+                        'organization_registration_number': '29AAACF1234A1Z5',
                         'requested_subscriptions': 'Microsoft 365 E3 (NCE COM MTH) = 5',
                         'domain': 'fabrikam-international-holdings-ltd'})
         self._check()
@@ -242,6 +252,9 @@ class TestM365IngramTenant(IngramCommon):
         """An order for an existing tenant tells Ingram Micro which tenant gets the
         licenses: tenant_preference existing and its .onmicrosoft.com domain."""
         self.plan._set_terms([{'subscriptionPeriod': '1', 'subscriptionPeriodUnit': 'YEARS'}])
+        self.tenant.write({'mca_accepted': True, 'mca_first_name': 'Megan',
+                           'mca_email': 'megan@contoso.com',
+                           'mca_date': fields.Date.to_date('2026-11-01')})
         order = self._submitted()
         fake = self._fake()
         with patch(IM_PATH, side_effect=fake):
@@ -254,7 +267,8 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual(attributes({'lines': [line]}), {
             'tier1_mpn': '5068860', 'tenant_preference': 'existing',
             'microsoft_domain': 'contoso', 'relationship_url': 'no',
-            'indirect_reseller_domain': 'bxitech.onmicrosoft.com'})
+            'indirect_reseller_domain': 'bxitech.onmicrosoft.com',
+            'MCA_Agreement_Acceptance': 'Yes'})
 
     def test_existing_tenant_without_domain(self):
         """Without its .onmicrosoft.com domain, Ingram Micro cannot find the tenant: the
@@ -293,6 +307,22 @@ class TestM365IngramTenant(IngramCommon):
         self.assertEqual((order.state, self.new.provision_state), ('sent', 'queued'))
         self.assertEqual(attributes(fake.bodies('POST', ORDERS)[0])['customer_po_ref'], 'PO-77')
 
+    def test_culture_and_tax_id(self):
+        """customer_culture: the culture of the tenant if Ingram Micro offers it, else
+        English of its country, else en-US; customer_tax_id: the tenant's, else the Tax ID
+        of its customer (UAT: both were missing)."""
+        self.assertEqual(self.new._ingram_culture(), 'en-IN')  # no culture: the country
+        customer = self.env['customer.customer'].create({'name': 'Fabrikam Group',
+                                                         'vat': '29AAAFG0000A1Z1'})
+        self.new.write({'organization_registration_number': False,
+                        'tenant_customer_id': customer.id, 'culture': 'en-GB'})
+        self._check()
+        self.assertEqual(self.new.provision_state, 'ready', self.new.provision_error)
+        fake, _action = self._create()
+        values = attributes(fake.bodies('POST', ORDERS)[0])
+        self.assertEqual((values['customer_tax_id'], values['customer_culture']),
+                         ('29AAAFG0000A1Z1', 'en-US'))
+
     def test_without_required_info(self):
         self._check()
         fake = self._fake()
@@ -305,6 +335,7 @@ class TestM365IngramTenant(IngramCommon):
         self.assertNotIn('productId', group)
         expected = {k: v for k, v in EXPECTED_ATTRIBUTES.items()
                     if k not in ('tier1_mpn', 'indirect_reseller_domain')}
+        expected['MCA_Agreement_Acceptance'] = 'yes'  # no choices to follow
         self.assertEqual({a['attributeName']: a['attributeValue']
                           for a in group['additionalAttributes']}, expected)
         self.assertIn('gave no vendor required info', ' '.join(order.message_ids.mapped('body')))
