@@ -12,7 +12,8 @@ from odoo import fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import HttpCase, new_test_user, tagged
 
-from ..models.m365_ingram_account import M365IngramError, M365IngramTimeout
+from ..models.m365_ingram_account import (M365IngramError, M365IngramNoProduct,
+                                         M365IngramTimeout)
 from .common import (ADMIN_GROUP, GRAPH_PATH, GUID_A, MODELS, USER_GROUP, FakeGraph,
                      M365Common, http_response, map_tenants)
 
@@ -430,6 +431,26 @@ class TestM365Ingram(IngramCommon):
         self.assertEqual([b['customerOrderNumber'] for b in fake.bodies('POST', ORDERS)],
                          [other.name])
 
+        # App without the API product of the order search (UAT: HTTP 401 "no API product
+        # for /sandbox/resellers/v6/orders/search"): Retry is not blocked by the search
+        third = self._submitted()
+        with patch(IM_PATH, side_effect=FakeIngram({('POST', ORDERS): timeout})):
+            third.with_user(self.admin).action_approve()
+        no_product = M365IngramNoProduct('HTTP 401: Ingram Micro refused the call: the app '
+                                         'of this Client ID has no API product', 401)
+        fake = FakeIngram({('GET', SEARCH): no_product,
+                           ('POST', ORDERS): {'confirmationNumber': 'CNF-3'}})
+        with patch(IM_PATH, side_effect=fake):
+            third.with_user(self.admin).action_retry()
+        self.assertEqual(third.state, 'sent')
+        self.assertEqual(len(fake.bodies('POST', ORDERS)), 1)
+        self.assertTrue(any('could not be searched' in (m.body or '') for m in third.message_ids))
+        # The order call itself refused by the gateway: not received, cancel allowed
+        fourth = self._submitted()
+        with patch(IM_PATH, side_effect=FakeIngram({('POST', ORDERS): no_product})):
+            fourth.with_user(self.admin).action_approve()
+        self.assertEqual((fourth.state, fourth.send_attempted), ('failed', False))
+
     def test_order_refused(self):
         order = self._submitted()
         refused = M365IngramError('HTTP 400: Invalid part number.', 400)
@@ -605,7 +626,9 @@ class TestM365IngramGaps(IngramCommon):
         self.assertEqual((len(info['city']), info['postalCode'], info['state']),
                          (25, '560001-123', 'KA'))
         self.tenant.tenant_customer_id.ref = 'CONTOSO-001'
-        self.assertEqual(order._order_body()['endCustomerOrderNumber'], 'CONTOSO-001')
+        with patch(IM_PATH, side_effect=FakeIngram()):
+            body = order._order_body()
+        self.assertEqual(body['endCustomerOrderNumber'], 'CONTOSO-001')
         # Unknown state name: not sent rather than refused
         self.tenant.address_state = 'Somewhere Else'
         self.assertNotIn('state', order._end_user_info())
