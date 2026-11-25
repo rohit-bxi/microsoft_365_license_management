@@ -225,6 +225,45 @@ class TestM365Ingram(IngramCommon):
         plans['438400'].with_user(self.admin).product_id = self.sku.product_id
         self.assertFalse(plans['438400'].product_suggested)
 
+    def _catalog_pages(self, pages, total):
+        """Fake catalog: ``pages[n]`` = plan IDs of page n+1, grouped by 25 as Ingram
+        Micro does; a page past the end is empty. :return: (side effect, calls)"""
+        calls = []
+
+        def answer(method, path, params=None, json_body=None, expect=()):
+            calls.append(params['pageNumber'])
+            ids = pages[params['pageNumber'] - 1] if params['pageNumber'] <= len(pages) else []
+            groups = [{'groupName': 'Group %s' % i, 'plans': [
+                {'planId': str(pid), 'planName': 'Plan %s' % pid} for pid in ids[i:i + 25]]}
+                for i in range(0, len(ids), 25)]
+            return 200, {'recordsFound': total, 'pageSize': 100,
+                         'subscriptionCatalog': groups}
+        return answer, calls
+
+    def test_catalog_sync_all_pages(self):
+        """A page of 100 plans in 4 groups is not the last page (UAT: only 100 plans of
+        2787 were read)."""
+        Plan = self.env['m365.ingram.plan'].with_context(active_test=False)
+        answer, calls = self._catalog_pages(
+            [range(1, 101), range(101, 201), range(201, 251)], 250)
+        with patch(IM_PATH, side_effect=answer):
+            self.account.with_user(self.admin).action_sync_plans()
+        self.assertEqual(calls, [1, 2, 3])
+        self.assertEqual(Plan.search_count([('account_id', '=', self.account.id),
+                                            ('active', '=', True)]), 250)
+
+    def test_catalog_sync_same_page_again(self):
+        """Ingram Micro ignoring the page number: stop, keep the plans not read, warn."""
+        Plan = self.env['m365.ingram.plan'].with_context(active_test=False)
+        old = Plan.create({'account_id': self.account.id, 'plan_id': '999', 'name': 'Old'})
+        answer, calls = self._catalog_pages([range(1, 101)] * 30, 2787)
+        with patch(IM_PATH, side_effect=answer):
+            action = self.account.with_user(self.admin).action_sync_plans()
+        self.assertEqual(calls, [1, 2])
+        self.assertTrue(old.active)
+        self.assertEqual(action['params']['type'], 'warning')
+        self.assertIn('100 of 2787', action['params']['message'])
+
     def test_plan_details_and_price(self):
         fake = FakeIngram({
             ('GET', '/resellers/v6/catalog/details'): {
