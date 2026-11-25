@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
@@ -33,7 +34,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import config
 
-from .m365_ingram_account import M365IngramError, M365IngramTimeout
+from .m365_ingram_account import M365IngramAuthError, M365IngramError, M365IngramTimeout
 from .m365_tenant import M365GraphError
 
 _logger = logging.getLogger(__name__)
@@ -140,9 +141,12 @@ class M365IngramOrder(models.Model):
 
     @api.ondelete(at_uninstall=False)
     def _unlink_except_sent(self):
-        if self.filtered(lambda o: o.state not in ('draft', 'rejected', 'cancelled')
-                         or o.send_attempted):
+        if self.filtered('send_attempted'):
             raise UserError(_("An order sent to Ingram Micro cannot be deleted."))
+        if self.filtered(lambda o: o.state not in ('draft', 'rejected', 'cancelled')):
+            # e.g. failed before being sent: kept for the audit trail until cancelled
+            raise UserError(_("Cancel the order first: only draft, rejected or cancelled "
+                              "orders can be deleted."))
 
     def _check_admin(self):
         if not self.env.user.has_group(ADMIN_GROUP):
@@ -428,6 +432,18 @@ class M365IngramOrder(models.Model):
         ref = (customer.ref or '').strip() or (self.tenant_id.domain or '').split('.')[0]
         return ref[:END_CUSTOMER_REF_MAX]
 
+    @staticmethod
+    def _billing_period(text):
+        """``billingPeriod`` of a line from the billing period of the plan details, e.g.
+        ``1 month`` -> ``{'type': 'MONTHS', 'duration': 1}`` (types YEARS, MONTHS, DAYS)."""
+        match = re.match(r'^\s*(\d+)\s*([a-z]+)', text or '', re.I)
+        if not match:
+            return False
+        unit = match.group(2).upper().rstrip('S') + 'S'
+        if unit not in ('YEARS', 'MONTHS', 'DAYS'):
+            return False
+        return {'type': unit, 'duration': int(match.group(1))}
+
     def _order_body(self):
         """Body of POST /resellers/v7/orders."""
         self.ensure_one()
@@ -453,6 +469,13 @@ class M365IngramOrder(models.Model):
                 vals['ingramPartNumber'] = plan.ingram_part_number
             if plan.vendor_part_number:
                 vals['vendorPartNumber'] = plan.vendor_part_number
+            # "Please provide the valid ResourceId, PlanId, and vendorPartNumber
+            # combination" / "valid Billing period type and duration at the line level"
+            if plan.resource_id:
+                vals['resourceId'] = plan.resource_id
+            billing = self._billing_period(plan.billing_period)
+            if billing:
+                vals['billingPeriod'] = billing
             if line_attrs:
                 vals['vmfAdditionalAttributesLines'] = [attr._payload(self, line)
                                                         for attr in line_attrs]
@@ -480,8 +503,11 @@ class M365IngramOrder(models.Model):
                 if found:
                     self._apply_found(found, _("found at Ingram Micro"))
                     return True
+            # Part number, resource ID and billing period of the plans (catalog details):
+            # Ingram Micro refuses a subscription line without them
             for line in self.line_ids.filtered(lambda l: not (
-                    l.plan_id.ingram_part_number or l.plan_id.vendor_part_number)):
+                    (l.plan_id.ingram_part_number or l.plan_id.vendor_part_number)
+                    and l.plan_id.resource_id and l.plan_id.billing_period)):
                 line.plan_id._refresh_details()
             missing = self.line_ids.filtered(lambda l: not (
                 l.plan_id.ingram_part_number or l.plan_id.vendor_part_number))
@@ -510,9 +536,11 @@ class M365IngramOrder(models.Model):
             self._commit()
             return False
         except M365IngramError as exc:
-            # 4xx: refused, nothing created. 5xx: unknown, look for it on retry
-            self.write({'state': 'failed', 'error_message': str(exc),
-                        'send_attempted': bool(exc.status and exc.status >= 500)})
+            # 4xx: refused, nothing created. 5xx: unknown, look for it on retry. Login
+            # refused (UAT: HTTP 500 "Invalid client identifier"): the order was not sent
+            sent = (not isinstance(exc, M365IngramAuthError)
+                    and bool(exc.status and exc.status >= 500))
+            self.write({'state': 'failed', 'error_message': str(exc), 'send_attempted': sent})
             self._log('failed', str(exc))
             self._commit()
             return False

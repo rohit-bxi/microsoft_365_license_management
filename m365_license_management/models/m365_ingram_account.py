@@ -83,6 +83,11 @@ class M365IngramTimeout(M365IngramError):
     """Ingram Micro did not answer: the call may have been executed."""
 
 
+class M365IngramAuthError(M365IngramError):
+    """No token (credentials refused, missing or token endpoint unreachable): the API call
+    itself was not made, e.g. an order was not sent."""
+
+
 class M365IngramAccount(models.Model):
     _name = 'm365.ingram.account'
     _description = 'Ingram Micro Account'
@@ -95,7 +100,8 @@ class M365IngramAccount(models.Model):
                                  default=lambda self: self.env.company)
     api_url = fields.Char(string="API URL", required=True,
                           default='https://api.ingrammicro.com:443',
-                          help="Production: https://api.ingrammicro.com:443\n"
+                          help="Production: https://api.ingrammicro.com:443 (no /production "
+                               "suffix)\n"
                                "Sandbox app (API products marked Sandbox): "
                                "https://api.ingrammicro.com:443/sandbox\n"
                                "The token is always requested at the root of the host.")
@@ -190,7 +196,27 @@ class M365IngramAccount(models.Model):
         for rec in self:
             rec.webhook_url = "%s/m365/ingram/webhook/%s" % (base, rec.id) if rec.id else False
 
+    @api.model
+    def _normalize_api_url(self, url):
+        """Base URL of the calls. Production is the bare host: a ``/production`` suffix,
+        as the developer portal names the environment, is not a path of the gateway
+        (HTTP 404 "Unable to identify proxy for host: default and url:
+        /production/..."). Only the sandbox has a prefix: ``/sandbox``."""
+        url = (url or '').strip().rstrip('/')
+        if url.lower().endswith('/production'):
+            url = url[:-len('/production')]
+        return url
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('api_url'):
+                vals['api_url'] = self._normalize_api_url(vals['api_url'])
+        return super().create(vals_list)
+
     def write(self, vals):
+        if vals.get('api_url'):
+            vals = dict(vals, api_url=self._normalize_api_url(vals['api_url']))
         reset = bool({'api_url', 'client_id', 'client_secret'} & set(vals))
         if reset:
             vals = dict(vals, state='draft')
@@ -257,8 +283,8 @@ class M365IngramAccount(models.Model):
                 and rec.token_expiry > now + timedelta(minutes=2)):
             return rec.access_token
         if not (rec.client_id and rec.client_secret):
-            raise M365IngramError(_("The client ID and secret of the Ingram Micro account "
-                                    "are required."))
+            raise M365IngramAuthError(_("The client ID and secret of the Ingram Micro "
+                                        "account are required."))
         try:
             # As specified by Ingram Micro: GET with the credentials as query parameters
             resp = requests.get(rec._token_url(), params={
@@ -267,10 +293,10 @@ class M365IngramAccount(models.Model):
                 'client_secret': rec.client_secret.strip(),
             }, timeout=30)
         except requests.RequestException as exc:
-            raise M365IngramError(_("Unable to reach Ingram Micro: %s", exc)) from None
+            raise M365IngramAuthError(_("Unable to reach Ingram Micro: %s", exc)) from None
         if resp.status_code != 200:
-            raise M365IngramError(_("Ingram Micro authentication failed. %s",
-                                    self._format_error(resp)), resp.status_code)
+            raise M365IngramAuthError(_("Ingram Micro authentication failed. %s",
+                                        self._format_error(resp)), resp.status_code)
         payload = resp.json()
         try:
             expires_in = int(float(payload.get('expires_in') or 3600))
@@ -288,7 +314,7 @@ class M365IngramAccount(models.Model):
         :raise M365IngramTimeout: no answer: the call may have been executed
         """
         self.ensure_one()
-        url = "%s/%s" % (self.api_url.rstrip('/'), path.lstrip('/'))
+        url = "%s/%s" % (self._normalize_api_url(self.api_url), path.lstrip('/'))
         retries, refreshed = 0, False
         while True:
             headers = {

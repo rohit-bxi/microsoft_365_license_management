@@ -147,6 +147,9 @@ class M365IngramOrderTenant(models.Model):
         try:
             return self.account_id._vendor_required_info(self.line_ids.plan_id)
         except M365IngramError as exc:
+            if exc.status != 404:
+                # e.g. login refused: the order is not sent with guessed fields
+                raise
             _logger.info("Vendor required info of order %s not read: %s", self.name, exc)
             self.message_post(body=_("Ingram Micro gave no vendor required info (%s): the "
                                      "tenant fields known to Odoo are sent.", exc))
@@ -233,10 +236,13 @@ class M365IngramOrderTenant(models.Model):
         self.ensure_one()
         try:
             required = self.account_id._vendor_required_info(self.line_ids.plan_id)
-        except M365IngramError as exc:  # the order then sends the fields known to Odoo
-            _logger.info("Vendor required info of tenant %s not read: %s",
-                         self.tenant_id.id, exc)
-            return []
+        except M365IngramError as exc:
+            if exc.status == 404:  # no vendor required info: the fields known to Odoo
+                _logger.info("No vendor required info for tenant %s: %s",
+                             self.tenant_id.id, exc)
+                return []
+            # Else the order would fail the same way: not Ready (UAT: login refused)
+            return [_("Ingram Micro could not tell which fields the order needs: %s", exc)]
         errors = []
         for line in self.line_ids:
             try:

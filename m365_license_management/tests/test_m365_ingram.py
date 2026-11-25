@@ -184,6 +184,16 @@ class TestM365Ingram(IngramCommon):
         self.assertEqual(call.call_args.args,
                          ('GET', 'https://api.ingrammicro.com:443/sandbox/resellers/v6/catalog'))
         self.assertEqual(self.account.state, 'connected')
+        # Production app entered with the environment name: no /production path at the
+        # gateway (HTTP 404 "Unable to identify proxy"), the bare host is called
+        self.account.api_url = ' https://api.ingrammicro.com:443/production/ '
+        self.assertEqual(self.account.api_url, 'https://api.ingrammicro.com:443')
+        with patch(TOKEN_GET, return_value=token), \
+                patch(HTTP_CALL, return_value=http_response(200, {'recordsFound': 3})) as call:
+            self.account.with_user(self.admin).action_test_connection()
+        self.assertEqual(call.call_args.args,
+                         ('GET', 'https://api.ingrammicro.com:443/resellers/v6/catalog'))
+        self.assertEqual(self.account.state, 'connected')
         # Credentials changed by an administrator: token forgotten
         self.account.with_user(self.admin).client_secret = 'new'
         self.assertFalse(self.account.sudo().access_token)
@@ -454,8 +464,10 @@ class TestM365Ingram(IngramCommon):
         self.assertEqual((order.state, order.send_attempted), ('failed', False))
         self.assertIn('no part number', order.error_message)
         self.assertFalse(fake.bodies('POST', ORDERS))
-        with self.assertRaisesRegex(UserError, 'cannot be deleted'):
-            order.unlink()
+        with self.assertRaisesRegex(UserError, 'Cancel the order first'):
+            order.unlink()  # never sent: deleted once cancelled
+        order.with_user(self.admin).action_cancel()
+        order.unlink()
 
     # ------------------------------------------------------------------
     # Webhook
@@ -585,7 +597,8 @@ class TestM365IngramGaps(IngramCommon):
             'name': 'Contoso Information Technology Services Private Limited',
             'city': 'Bengaluru Rural District Office Area', 'zip': '560001-12345'})
         order = self._order()
-        body = order._order_body()
+        with patch(IM_PATH, side_effect=FakeIngram()):  # no vendor required info
+            body = order._order_body()
         self.assertEqual(body['endCustomerOrderNumber'], 'averyveryverylongc')
         info = body['endUserInfo']
         self.assertEqual(info['companyName'], 'Contoso Information Technology Services ')
