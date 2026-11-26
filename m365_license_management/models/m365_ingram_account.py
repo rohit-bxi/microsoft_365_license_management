@@ -35,7 +35,8 @@ from datetime import timedelta
 import requests
 
 from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+from odoo.tools import config
 
 from .m365_tenant import M365GraphError
 
@@ -44,6 +45,8 @@ _logger = logging.getLogger(__name__)
 ADMIN_GROUP = 'm365_license_management.group_m365_admin'
 CATALOG_PAGE_SIZE = 100
 CATALOG_MAX_PAGES = 100
+# A synchronisation queued or running for longer was stopped (e.g. server restarted)
+CATALOG_SYNC_STALE = timedelta(hours=2)
 PLAN_SUFFIX_RE = re.compile(r'\s*\([^)]*\)\s*$')
 # Suffix of the Ingram Micro plan names, e.g. (NCE COM MTH), (NCE COM BAS PER 1TM)
 CATALOG_SUFFIX_RE = re.compile(r'\s*\(\s*NCE\b[^)]*\)\s*$', re.I)
@@ -165,6 +168,11 @@ class M365IngramAccount(models.Model):
     ], string="Status", default='draft', readonly=True, copy=False, tracking=True)
     last_error = fields.Text(string="Last Error", readonly=True, copy=False)
     last_catalog_sync = fields.Datetime(string="Last Catalog Sync", readonly=True, copy=False)
+    catalog_sync_state = fields.Selection(
+        [('queued', 'Queued'), ('running', 'Running')], string="Catalog Synchronisation",
+        readonly=True, copy=False)
+    catalog_sync_date = fields.Datetime(string="Catalog Synchronisation Started",
+                                        readonly=True, copy=False)
     vmf_attribute_ids = fields.One2many('m365.ingram.vmf.attribute', 'account_id',
                                         string="Vendor Fields", copy=True)
     plan_ids = fields.One2many('m365.ingram.plan', 'account_id', string="Plans")
@@ -175,7 +183,7 @@ class M365IngramAccount(models.Model):
         Order = self.env['m365.ingram.order']
         for rec in self:
             rec.plan_count = len(rec.plan_ids)
-            rec.order_count = Order.search_count([('account_id', '=', rec.id)])
+            rec.order_count = Order.search_count([('account_id', '=', rec._origin.id)])
 
     @api.constrains('customer_number', 'country_code', 'sender_id')
     def _check_header_values(self):
@@ -388,19 +396,62 @@ class M365IngramAccount(models.Model):
         return self.env['m365.tenant']._notify(message)
 
     def action_sync_plans(self):
+        """Queue the synchronisation of the catalog: about 30 pages of Ingram Micro, too
+        long for a web request (UAT: request time limit reached; a Test Connection during
+        the synchronisation restarted it from page 1)."""
         self._check_admin()
-        partial = []
-        for rec in self:
-            count, total, complete = rec._sync_catalog()
-            rec.message_post(body=_("%s plan(s) read from the Ingram Micro catalog.", count))
-            if not complete:
-                partial.append(_("%(account)s: %(read)s of %(total)s plan(s)",
-                                 account=rec.name, read=count, total=total or '?'))
-        if partial:
-            return self.env['m365.tenant']._notify(_(
+        stale = fields.Datetime.now() - CATALOG_SYNC_STALE
+        busy = self.filtered(lambda a: a.catalog_sync_state and a.catalog_sync_date
+                             and a.catalog_sync_date > stale)
+        if busy:
+            raise UserError(_("The catalog of %s is already being synchronised: its result "
+                              "is posted on the account.", ", ".join(busy.mapped('name'))))
+        self.write({'catalog_sync_state': 'queued',
+                    'catalog_sync_date': fields.Datetime.now()})
+        cron = self.env.ref('m365_license_management.ir_cron_m365_ingram_catalog',
+                            raise_if_not_found=False)
+        if cron:
+            cron.sudo()._trigger()
+        return self.env['m365.tenant']._notify(_(
+            "Catalog synchronisation started. It takes a few minutes: its result is posted "
+            "on the account."))
+
+    @api.model
+    def _cron_sync_catalog(self):
+        """Catalogs queued by Synchronise Catalog, one account at a time."""
+        for account in self.search([('catalog_sync_state', '=', 'queued')]):
+            account._run_catalog_sync()
+
+    def _run_catalog_sync(self):
+        """Synchronise the catalog in the background; the result is posted on the account.
+        Each page is committed: a failure or a concurrent update loses one page, not the
+        synchronisation."""
+        self.ensure_one()
+        self.write({'catalog_sync_state': 'running',
+                    'catalog_sync_date': fields.Datetime.now()})
+        self._commit()
+        try:
+            count, total, complete = self._sync_catalog(commit=True)
+        except M365IngramError as exc:  # the pages read are kept
+            self.write({'catalog_sync_state': False, 'state': 'error', 'last_error': str(exc)})
+            self.message_post(body=_("Catalog synchronisation failed: %s", exc))
+            self._commit()
+            return False
+        self.write({'catalog_sync_state': False})
+        if complete:
+            self.message_post(body=_("%s plan(s) read from the Ingram Micro catalog.", count))
+        else:
+            self.message_post(body=_(
                 "Catalog partly synchronised, Ingram Micro returned the same page again: "
-                "%s. The plans not read are kept.", "; ".join(partial)), 'warning')
-        return self.env['m365.tenant']._notify(_("Catalog synchronised."))
+                "%(read)s of %(total)s plan(s). The plans not read are kept.",
+                read=count, total=total or '?'))
+        self._commit()
+        return True
+
+    def _commit(self):
+        """Keep the work done in the background (not in tests)."""
+        if not config['test_enable']:
+            self.env.cr.commit()
 
     def action_view_plans(self):
         self.ensure_one()
@@ -547,8 +598,9 @@ class M365IngramAccount(models.Model):
         """:return: number of plans read from the catalog"""
         return self._sync_catalog()[0]
 
-    def _sync_catalog(self):
-        """Read the Microsoft subscriptions of the catalog, page by page.
+    def _sync_catalog(self, commit=False):
+        """Read the Microsoft subscriptions of the catalog, page by page (each one committed
+        with ``commit``).
 
         ``recordsFound`` and ``pageSize`` count plans, while an entry of
         ``subscriptionCatalog`` may be a group holding several plans: the pages are
@@ -601,6 +653,8 @@ class M365IngramAccount(models.Model):
             size = self._int(data.get('pageSize')) or CATALOG_PAGE_SIZE
             _logger.info("Ingram Micro catalog of account %s, page %s: %s plan(s), %s new, "
                          "%s found in all", self.id, page, len(page_ids), len(new), total)
+            if commit:
+                self._commit()
             if not page_ids:  # past the last page
                 complete = True
                 break
