@@ -62,7 +62,8 @@ class M365TenantAppInstall(models.Model):
         ('none', 'Not Installed'),
         ('done', 'Installed'),
         ('failed', 'Failed'),
-    ], string="Shared App", default='none', readonly=True, copy=False, tracking=True,
+    ], string="Shared App Installation", default='none', readonly=True, copy=False,
+        tracking=True,
         help="Shared app installed in the tenant by the partner user, without a sign-in of "
              "the customer.")
     app_install_date = fields.Datetime(string="Installed On", readonly=True, copy=False)

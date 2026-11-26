@@ -429,7 +429,8 @@ class M365TenantProvisioning(models.Model):
         _failure_settled) is left out: it would block the provisioning for ever."""
         self.ensure_one()
         requests = self.env['m365.license.request'].sudo().search(
-            [('tenant_id', '=', self.id), ('request_type', 'in', LICENSE_TYPES),
+            # _origin: a tenant being created (form) has no requests yet
+            [('tenant_id', '=', self._origin.id), ('request_type', 'in', LICENSE_TYPES),
              ('state', 'not in', ('draft', 'rejected'))], order='id desc')
         latest = {}
         for request in requests:

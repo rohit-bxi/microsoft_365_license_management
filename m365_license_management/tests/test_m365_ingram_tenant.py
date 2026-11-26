@@ -325,13 +325,26 @@ class TestM365IngramTenant(IngramCommon):
         self._check(fake=fake)
         self.assertEqual(self.new.provision_state, 'draft')
         self.assertIn('tier1_mpn (Microsoft Partner Number)', self.new.provision_error)
+        self.assertIn('Microsoft Partner ID (MPN) on Ingram Micro account',
+                      self.new.provision_error)
         self.assertFalse(self.new.ingram_order_ids)  # no order created
         self.assertFalse(fake.bodies('POST', ORDERS))
-        self.env['m365.ingram.vmf.attribute'].create({
-            'account_id': self.account.id, 'level': 'header', 'name': 'tier1_mpn',
-            'source': 'fixed', 'value': '5068860'})
+        # The Microsoft Partner ID of the account gives it
+        self.account.mpn_id = ' 5068860 '
         self._check(fake=fake)
         self.assertEqual((self.new.provision_state, self.new.provision_error), ('ready', False))
+        fake, _action = self._create(fake)
+        self.assertEqual(attributes(fake.bodies('POST', ORDERS)[0])['tier1_mpn'], '5068860')
+        # A vendor field overrides it
+        self.env['m365.ingram.vmf.attribute'].create({
+            'account_id': self.account.id, 'level': 'line', 'name': 'tier1_mpn',
+            'source': 'fixed', 'value': '1234567'})
+        order = self.new.ingram_creation_order_id
+        with patch(IM_PATH, side_effect=fake):
+            body = order._order_body()
+        self.assertEqual(attributes(body)['tier1_mpn'], '1234567')
+        order.sudo().write({'state': 'cancelled', 'send_attempted': False})
+        self.env['m365.ingram.vmf.attribute'].search([('name', '=', 'tier1_mpn')]).unlink()
         # Ingram Micro unreachable or login refused (UAT): not Ready, the order would fail
         self.new.action_reset_creation()
         self.new.provision_state = 'draft'

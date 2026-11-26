@@ -45,6 +45,7 @@ class TestM365IngramTerms(IngramBulkCommon):
              'subscriptionPeriodSummary': periods(('1', 'MONTHS'), ('12', 'MONTHS'))}]}
         with patch(IM_PATH, side_effect=FakeIngram({('GET', '/resellers/v6/catalog'): page})):
             self.account.with_user(self.admin).action_sync_plans()
+            self.account._cron_sync_catalog()
         self.assertEqual(self.basic.term_ids.mapped('key'), ['P1M', 'P1Y'])
         self.assertEqual(self.basic.term_ids.mapped('name'), ['1 Month', '1 Year'])
         self.assertEqual(self.basic.term_ids.mapped('months'), [1, 12])

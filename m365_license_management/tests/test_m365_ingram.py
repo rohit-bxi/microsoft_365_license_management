@@ -222,6 +222,7 @@ class TestM365Ingram(IngramCommon):
         fake = FakeIngram({('GET', '/resellers/v6/catalog'): page})
         with patch(IM_PATH, side_effect=fake):
             self.account.with_user(self.admin).action_sync_plans()
+            self.account._cron_sync_catalog()
         self.assertEqual(fake.calls[0][2], {'type': 'IM::subscription', 'vendor': 'Microsoft',
                                             'pageSize': 100, 'pageNumber': 1,
                                             'showGroupInfo': 'false'})
@@ -259,6 +260,7 @@ class TestM365Ingram(IngramCommon):
             [range(1, 101), range(101, 201), range(201, 251)], 250)
         with patch(IM_PATH, side_effect=answer):
             self.account.with_user(self.admin).action_sync_plans()
+            self.account._cron_sync_catalog()
         self.assertEqual(calls, [1, 2, 3])
         self.assertEqual(Plan.search_count([('account_id', '=', self.account.id),
                                             ('active', '=', True)]), 250)
@@ -269,11 +271,40 @@ class TestM365Ingram(IngramCommon):
         old = Plan.create({'account_id': self.account.id, 'plan_id': '999', 'name': 'Old'})
         answer, calls = self._catalog_pages([range(1, 101)] * 30, 2787)
         with patch(IM_PATH, side_effect=answer):
-            action = self.account.with_user(self.admin).action_sync_plans()
+            self.account.with_user(self.admin).action_sync_plans()
+            self.account._cron_sync_catalog()
+            self.account._cron_sync_catalog()
         self.assertEqual(calls, [1, 2])
         self.assertTrue(old.active)
-        self.assertEqual(action['params']['type'], 'warning')
-        self.assertIn('100 of 2787', action['params']['message'])
+        self.assertIn('100 of 2787 plan(s)', self.account.message_ids[0].body)
+
+    def test_catalog_sync_in_background(self):
+        """Synchronise Catalog only queues the synchronisation (UAT: about 30 pages, too
+        long for a web request); a second one is refused while it runs."""
+        answer, calls = self._catalog_pages([range(1, 51)], 50)
+        with patch(IM_PATH, side_effect=answer):
+            action = self.account.with_user(self.admin).action_sync_plans()
+        self.assertFalse(calls)  # nothing read in the request
+        self.assertIn('started', action['params']['message'])
+        self.assertEqual(self.account.catalog_sync_state, 'queued')
+        with self.assertRaisesRegex(UserError, 'already being synchronised'):
+            self.account.with_user(self.admin).action_sync_plans()
+        with patch(IM_PATH, side_effect=answer):
+            self.account._cron_sync_catalog()
+        self.assertEqual((calls, self.account.catalog_sync_state), ([1], False))
+        self.assertIn('50 plan(s) read', self.account.message_ids[0].body)
+        self.assertEqual(self.account.plan_count, 50)  # the plan of the setup archived
+        # Stopped (server restarted): started again after a while
+        self.account.write({'catalog_sync_state': 'running', 'catalog_sync_date':
+                            fields.Datetime.now() - timedelta(hours=3)})
+        self.account.with_user(self.admin).action_sync_plans()
+        self.assertEqual(self.account.catalog_sync_state, 'queued')
+        # Refused by Ingram Micro: posted on the account, no longer queued
+        refused = M365IngramNoProduct('HTTP 401: no API product for /resellers/v6/catalog', 401)
+        with patch(IM_PATH, side_effect=FakeIngram({('GET', '/resellers/v6/catalog'): refused})):
+            self.account._cron_sync_catalog()
+        self.assertEqual((self.account.catalog_sync_state, self.account.state), (False, 'error'))
+        self.assertIn('Catalog synchronisation failed', self.account.message_ids[0].body)
 
     def test_plan_details_and_price(self):
         fake = FakeIngram({
@@ -858,6 +889,19 @@ class TestM365IngramGaps(IngramCommon):
         self.assertEqual(fake.calls[-1][2]['invoiceFromDate'],
                          (today - timedelta(days=7)).isoformat())
         self.assertEqual(len(fake.bodies('GET', '/resellers/v6.1/invoices/40MKTRW11')), 1)
+        # Daily run refused (UAT: no API product for the invoices): shown on the account
+        self.account.state = 'connected'
+        refused = M365IngramNoProduct('HTTP 401: no API product for /resellers/v6/invoices',
+                                      401)
+        fake.routes[('GET', '/resellers/v6/invoices')] = refused
+        with patch(IM_PATH, side_effect=fake):
+            self.env['m365.ingram.account']._cron_sync_billing()
+        self.assertEqual(self.account.billing_error,
+                         'Invoices: HTTP 401: no API product for /resellers/v6/invoices')
+        fake.routes[('GET', '/resellers/v6/invoices')] = search
+        with patch(IM_PATH, side_effect=fake):
+            self.env['m365.ingram.account']._cron_sync_billing()
+        self.assertFalse(self.account.billing_error)
 
     def test_account_settings(self):
         fake = FakeIngram({('GET', '/resellers/v6/catalog'): {'subscriptionCatalog': []}})

@@ -60,11 +60,18 @@ TENANT_PREFERENCE = 'tenant_preference'
 # Confirmation of the Microsoft Customer Agreement by the partner (choices Yes,No), besides
 # the mca_acceptance of a new tenant
 MCA_CONFIRMATION = 'MCA_Agreement_Acceptance'
+# Microsoft Partner ID of the reseller, required for the Microsoft plans
+TIER1_MPN = 'tier1_mpn'
 DEFAULT_CULTURE = 'en-US'
 
 
 class M365IngramAccountTenant(models.Model):
     _inherit = 'm365.ingram.account'
+
+    mpn_id = fields.Char(
+        string="Microsoft Partner ID (MPN)", tracking=True,
+        help="Your Microsoft Partner ID, sent as tier1_mpn (Microsoft Partner Number) in "
+             "the orders: Ingram Micro requires it for the Microsoft subscriptions.")
 
     def _vendor_required_info(self, plans):
         """Fields Microsoft requires to order the plans.
@@ -192,8 +199,12 @@ class M365IngramOrderTenant(models.Model):
         }
 
     def _vendor_info_values(self):
-        return (self._tenant_creation_values() if self.create_tenant
-                else self._tenant_existing_values())
+        values = (self._tenant_creation_values() if self.create_tenant
+                  else self._tenant_existing_values())
+        mpn = (self.account_id.mpn_id or '').strip()
+        if mpn:  # else the value Ingram Micro gives, if any
+            values[TIER1_MPN] = mpn
+        return values
 
     @staticmethod
     def _required_attributes(group, preference='new'):
@@ -314,6 +325,12 @@ class M365IngramOrderTenant(models.Model):
             if not self.create_tenant and not overrides.get('microsoft_domain',
                                                             values['microsoft_domain']):
                 missing.append('microsoft_domain')  # else Ingram cannot find the tenant
+        if TIER1_MPN in missing:
+            # Of the reseller, not of the tenant: the same for all the orders
+            raise M365IngramError(_(
+                "Ingram Micro requires tier1_mpn (Microsoft Partner Number): enter your "
+                "Microsoft Partner ID (MPN) on Ingram Micro account %s.",
+                self.account_id.name))
         missing = ", ".join("%s (%s)" % (name, labels[name]) if labels.get(name) else name
                             for name in sorted(set(missing)))
         if missing and self.create_tenant:

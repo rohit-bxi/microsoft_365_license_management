@@ -66,6 +66,15 @@
                         <strong>Last error:</strong>
                         <field name="last_error" nolabel="1" class="d-inline"/>
                     </div>
+                    <div class="alert alert-warning" role="alert" invisible="not billing_error">
+                        <strong>Daily invoice and renewal synchronisation failed:</strong>
+                        <field name="billing_error" nolabel="1" class="d-block"/>
+                    </div>
+                    <div class="alert alert-info" role="status" invisible="not catalog_sync_state">
+                        Catalog synchronisation <field name="catalog_sync_state" nolabel="1"
+                        class="d-inline"/> since <field name="catalog_sync_date" nolabel="1"
+                        class="d-inline"/>: its result is posted on the account.
+                    </div>
                     <group>
                         <group string="API Credentials">
                             <field name="api_url"/>
@@ -75,6 +84,7 @@
                         </group>
                         <group string="Reseller">
                             <field name="customer_number"/>
+                            <field name="mpn_id"/>
                             <field name="country_code"/>
                             <field name="sender_id"/>
                             <field name="bill_to_address_id"/>

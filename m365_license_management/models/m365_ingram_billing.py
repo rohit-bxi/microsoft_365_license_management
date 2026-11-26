@@ -159,12 +159,17 @@ class M365IngramAccountBilling(models.Model):
 
     invoice_count = fields.Integer(compute='_compute_billing_counts')
     renewal_count = fields.Integer(compute='_compute_billing_counts')
+    billing_error = fields.Text(
+        string="Invoice and Renewal Sync Error", readonly=True, copy=False,
+        help="Why the last daily synchronisation of the invoices or renewals failed (UAT: "
+             "the app had no API product for them). Cleared once both are read.")
 
     def _compute_billing_counts(self):
         Invoice, Renewal = self.env['m365.ingram.invoice'], self.env['m365.ingram.renewal']
         for rec in self:
-            rec.invoice_count = Invoice.search_count([('account_id', '=', rec.id)])
-            rec.renewal_count = Renewal.search_count([('account_id', '=', rec.id)])
+            # _origin: an account being created (form) has none yet
+            rec.invoice_count = Invoice.search_count([('account_id', '=', rec._origin.id)])
+            rec.renewal_count = Renewal.search_count([('account_id', '=', rec._origin.id)])
 
     def _orders_by_reference(self):
         """Orders of the account by PO number and by Ingram order number."""
@@ -308,6 +313,7 @@ class M365IngramAccountBilling(models.Model):
         for rec in self:
             invoices = rec._sync_invoices()
             renewals = rec._sync_renewals()
+            rec.billing_error = False
             messages.append(_("%(account)s: %(invoices)s invoice(s), %(renewals)s "
                               "renewal(s) read.", account=rec.name, invoices=invoices,
                               renewals=renewals))
@@ -331,10 +337,15 @@ class M365IngramAccountBilling(models.Model):
     def _cron_sync_billing(self):
         """Daily: invoices and renewals of every connected account."""
         for account in self.search([('state', '=', 'connected')]):
-            for method in (account._sync_invoices, account._sync_renewals):
+            errors = []
+            for label, method in ((_("Invoices"), account._sync_invoices),
+                                  (_("Renewals"), account._sync_renewals)):
                 try:
                     method()
                 except M365IngramError as exc:
                     _logger.warning("Ingram Micro account %s: %s", account.id, exc)
+                    errors.append("%s: %s" % (label, exc))
+            # Shown on the account: else only the server log tells it never works
+            account.billing_error = "\n".join(errors) or False
             if not config['test_enable']:
                 self.env.cr.commit()
